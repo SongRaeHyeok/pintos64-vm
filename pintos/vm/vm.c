@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/malloc.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -110,11 +111,25 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = NULL;
-	/* TODO: Fill this function. */
+	// struct frame *frame = NULL;
+	struct frame *frame;
 
+	/* init frame */
+	frame = malloc(sizeof(struct frame));
 	ASSERT (frame != NULL);
+
+	frame->kva = palloc_get_page(PAL_USER);
+	
+	frame->page = NULL;
 	ASSERT (frame->page == NULL);
+
+	/* no available page */
+	if (frame == NULL || frame->kva == NULL) {
+		/* evit page */
+		PANIC("todo");
+	}
+	
+	/* return valid address */
 	return frame;
 }
 
