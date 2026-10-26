@@ -1,8 +1,10 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
+#include "kernel/hash.h"
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include <debug.h>
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -66,6 +68,12 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: Fill this function. */
 
+	// 페이지 찾기 
+
+	// va 가 있으면 page 반환 
+
+	// va 가 없으면 나쁜 폴트 (종료)
+
 	return page;
 }
 
@@ -75,6 +83,13 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	int succ = false;
 	/* TODO: Fill this function. */
+
+	// spt_find_page 로 va가 이미 있는 페이지인지 찾기
+		// 있으면 있는 페이지 정보 반환? 
+			//-> 뭘 반환할지 .. 어디서 불러오는지 봐야할듯 (현재는 없고, 생각해봐야할듯)
+		// 없으면 spt insert 실행
+			// spt 에 자리 있는지 확인
+			// spt 에 
 
 	return succ;
 }
@@ -171,9 +186,28 @@ vm_do_claim_page (struct page *page) {
 	return swap_in (page, frame->kva);
 }
 
+
+/* Returns a hash value for page p. */
+uint64_t
+page_hash (const struct hash_elem *p_, void *aux UNUSED) {
+  const struct page *p = hash_entry (p_, struct page, elem);
+  return hash_bytes (&p->va, sizeof p->va);
+}
+
+/* Returns true if page a precedes page b. */
+bool
+page_less (const struct hash_elem *a_,
+           const struct hash_elem *b_, void *aux UNUSED) {
+  const struct page *a = hash_entry (a_, struct page, elem);
+  const struct page *b = hash_entry (b_, struct page, elem);
+
+  return a->va < b->va;
+}
+
 /* Initialize new supplemental page table */
 void
-supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_init (struct supplemental_page_table *spt) {
+	hash_init (&spt->hash, page_hash, page_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
