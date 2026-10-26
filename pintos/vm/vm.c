@@ -80,22 +80,18 @@ spt_find_page (struct supplemental_page_table *spt, void *va ) {
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
+spt_insert_page (struct supplemental_page_table *spt,
+		struct page *page) {
 	int succ = false;
-	/* TODO: Fill this function. */
-
-	// spt_find_page 로 va가 이미 있는 페이지인지 찾기
-	if (!spt_find_page(spt, page->va)){	// 없으면
-		// 있으면 있는 페이지 정보 반환? 
-			//-> 뭘 반환할지 .. 어디서 불러오는지 봐야할듯 (현재는 없고, 생각해봐야할듯)
-		return false;
+	
+	/* spt_find_page 로 va가 이미 있는 페이지인지 찾기 */
+	if (!spt_find_page(spt, page->va)){	
+		/* hash 에 insert 실행 */
+		hash_insert(&spt->hash, &page->elem);
+		succ = true;
 	} 
-		// 없으면 spt insert 실행
-			// spt 에 자리 있는지 확인
-			// spt 에 
-
 	return succ;
+
 }
 
 void
