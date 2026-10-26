@@ -64,19 +64,17 @@ err:
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
+	struct page page;
 	/* TODO: Fill this function. */
-	struct hash_iterator iter;
-	hash_first (&iter, &spt->hash);
-	while (hash_next (&iter)) {
-		struct page *p = hash_entry (hash_cur (&iter), struct page, elem);
-		if (p->va == va) {
-			page = p;
-			break;
-		}
-	}
+	struct hash_elem *e;
 
-	return page;
+	page.va = pg_round_down (va);
+	e = hash_find (&spt->hash, &page.elem);
+
+	if (e == NULL)
+		return NULL;
+	
+	return hash_entry (e, struct page, elem);
 }
 
 /* Insert PAGE into spt with validation. */
