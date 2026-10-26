@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/vaddr.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -65,6 +66,15 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: Fill this function. */
+	struct hash_iterator iter;
+	hash_first (&iter, &spt->hash);
+	while (hash_next (&iter)) {
+		struct page *p = hash_entry (hash_cur (&iter), struct page, elem);
+		if (p->va == va) {
+			page = p;
+			break;
+		}
+	}
 
 	return page;
 }
@@ -75,6 +85,8 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	int succ = false;
 	/* TODO: Fill this function. */
+	if (hash_insert (&spt->hash, &page->elem) == NULL)
+		succ = true;
 
 	return succ;
 }
@@ -173,7 +185,8 @@ vm_do_claim_page (struct page *page) {
 
 /* Initialize new supplemental page table */
 void
-supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_init (struct supplemental_page_table *spt) {
+	hash_init(&spt->hash, page_hash, page_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
