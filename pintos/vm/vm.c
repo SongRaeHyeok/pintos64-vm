@@ -3,7 +3,8 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
-#include "threads/malloc.h"
+#include "threads/mmu.h"
+
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -181,7 +182,9 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
-	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	/* Insert page table entry to map page's VA to frame's PA. */
+	struct thread *thread = thread_current();
+	pml4_set_page (thread->pml4, page->va, frame->kva, page->writable);
 
 	return swap_in (page, frame->kva);
 }
