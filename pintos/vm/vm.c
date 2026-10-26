@@ -65,13 +65,13 @@ err:
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va ) {
+	/* page 구조체 생성 */
 	struct page page;
 	page.va = va;
 
-	// 페이지 찾기
+	/* 페이지 찾기 */
 	struct hash_elem *elem = hash_find (&spt->hash, &page.elem);
 	if (elem != NULL){
-		// 있으면 page 반환 
 		return hash_entry (elem, struct page, elem);
 	} 
 
@@ -86,7 +86,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 	/* TODO: Fill this function. */
 
 	// spt_find_page 로 va가 이미 있는 페이지인지 찾기
-	if (spt_find_page(spt, page->va)){
+	if (!spt_find_page(spt, page->va)){	// 없으면
 		// 있으면 있는 페이지 정보 반환? 
 			//-> 뭘 반환할지 .. 어디서 불러오는지 봐야할듯 (현재는 없고, 생각해봐야할듯)
 		return false;
