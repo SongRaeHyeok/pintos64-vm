@@ -82,7 +82,7 @@ spt_find_page (struct supplemental_page_table *spt, void *va ) {
 bool
 spt_insert_page (struct supplemental_page_table *spt,
 		struct page *page) {
-	int succ = false;
+	bool succ = false;
 	
 	/* spt_find_page 로 va가 이미 있는 페이지인지 찾기 */
 	if (!spt_find_page(spt, page->va)){	
