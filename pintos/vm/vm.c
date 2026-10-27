@@ -52,11 +52,35 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
+		
+		 /* create the page, 페이지 내용 초기화하기 */
+		struct page *page = malloc (sizeof (struct page));
+		if (page == NULL) goto err;
+		
+		/* initializer 분기 처리  */
+		bool (*initializer)(struct page *, enum vm_type, void *kva);
 
-		/* TODO: Insert the page into the spt. */
+		switch (VM_TYPE(type)) {
+			case VM_ANON:
+				initializer = anon_initializer;
+				break;
+			default:
+				initializer = file_backed_initializer;
+				break;
+		}
+
+		/* create uninit page */
+		uninit_new(page, upage, init, type, aux, initializer);
+
+		/* modify the field after calling the uninit_new */
+		page->writable = writable;
+
+		if (!spt_insert_page(spt, page)){
+			free(page);
+			goto err;
+		}
+		
+		return true;
 	}
 err:
 	return false;
