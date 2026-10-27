@@ -4,6 +4,7 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -117,22 +118,15 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = NULL;
-
-	frame = malloc (sizeof *frame);
+	struct frame *frame = malloc (sizeof (struct frame));
 	if (frame == NULL)
-		return NULL;
+		PANIC ("todo");
 
-	frame->page = NULL;
+	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page (PAL_USER);
-
-	if (frame->kva == NULL) {
-		free (frame);
-		struct frame *f = vm_evict_frame ();
-		f->page = NULL;
-		return f;
-	}
-	/* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
+	if (frame->kva == NULL)
+		PANIC ("todo");
+	frame->page = NULL;	
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -172,8 +166,10 @@ vm_dealloc_page (struct page *page) {
 /* Claim the page that allocate on VA. */
 bool
 vm_claim_page (void *va) {
-	struct page *page = NULL;
-	page = pg_round_down (va);
+	struct page *page = spt_find_page (&thread_current ()->spt, va);
+	/* TODO: Fill this function */
+	if (page == NULL)
+		return false;
 
 	return vm_do_claim_page (page);
 }
@@ -183,8 +179,6 @@ static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
 	struct thread *curr = thread_current ();
-	if (frame == NULL)
-		return false;
 
 	/* Set links */
 	frame->page = page;
