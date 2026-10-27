@@ -81,12 +81,13 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 bool
 spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
-	int succ = false;
+	bool succ = false;
 	/* TODO: Fill this function. */
 	if (hash_insert (&spt->hash, &page->elem) == NULL)
 		succ = true;
 
 	return succ;
+
 }
 
 void
@@ -181,10 +182,27 @@ vm_do_claim_page (struct page *page) {
 	return swap_in (page, frame->kva);
 }
 
+/* Returns a hash value for page p. */
+uint64_t
+page_hash (const struct hash_elem *p_, void *aux UNUSED) {
+  const struct page *p = hash_entry (p_, struct page, elem);
+  return hash_bytes (&p->va, sizeof p->va);
+}
+
+/* Returns true if page a precedes page b. */
+bool
+page_less (const struct hash_elem *a_,
+           const struct hash_elem *b_, void *aux UNUSED) {
+  const struct page *a = hash_entry (a_, struct page, elem);
+  const struct page *b = hash_entry (b_, struct page, elem);
+
+  return a->va < b->va;
+}
+
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt) {
-	hash_init(&spt->hash, page_hash, page_less, NULL);
+	hash_init (&spt->hash, page_hash, page_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
