@@ -2,7 +2,7 @@
 #define VM_VM_H
 #include <stdbool.h>
 #include "threads/palloc.h"
-#include "lib/kernel/hash.h"
+#include <hash.h>
 
 enum vm_type {
 	/* page not initialized */
@@ -28,6 +28,7 @@ enum vm_type {
 #include "vm/uninit.h"
 #include "vm/anon.h"
 #include "vm/file.h"
+#include "kernel/hash.h"
 #ifdef EFILESYS
 #include "filesys/page_cache.h"
 #endif
@@ -35,7 +36,10 @@ enum vm_type {
 struct page_operations;
 struct thread;
 
-#define VM_TYPE(type) ((type) & 7)
+#define VM_TYPE(type) ((type) & 7) 
+
+uint64_t page_hash (const struct hash_elem *p_, void *aux);
+bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux);
 
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
