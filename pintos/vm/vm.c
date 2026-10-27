@@ -118,23 +118,17 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	// struct frame *frame = NULL;
-	struct frame *frame;
+	struct frame *frame = malloc (sizeof (struct frame));
+	if (frame == NULL)
+		PANIC ("malloc fail");
 
-	/* init frame */
-	frame = malloc(sizeof(struct frame));
+	frame->kva = palloc_get_page (PAL_USER);
+	if (frame->kva == NULL)
+		PANIC ("todo");
+	frame->page = NULL;	
+
 	ASSERT (frame != NULL);
-
-	frame->kva = palloc_get_page(PAL_USER);
-	
-	frame->page = NULL;
 	ASSERT (frame->page == NULL);
-
-	/* no available page */
-	if (frame == NULL || frame->kva == NULL) {
-		/* evit page */
-		PANIC("todo");
-	}
 	
 	/* return valid address */
 	return frame;
@@ -173,16 +167,10 @@ vm_dealloc_page (struct page *page) {
 /* Claim the page that allocate on VA. */
 bool
 vm_claim_page (void *va) {
-	struct page *page = NULL;
-
-	/* spt 가져오기 */
-	struct thread *thread = thread_current();
-	
-	/* va 통해서 page 찾기 */
-	page = spt_find_page (&thread->spt, va);
-	if (page == NULL) {
+	struct page *page = spt_find_page (&thread_current ()->spt, va);
+	/* TODO: Fill this function */
+	if (page == NULL)
 		return false;
-	}
 
 	return vm_do_claim_page (page);
 }
@@ -191,16 +179,24 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
+	struct thread *curr = thread_current ();
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
-	/* Insert page table entry to map page's VA to frame's PA. */
-	struct thread *thread = thread_current();
-	pml4_set_page (thread->pml4, page->va, frame->kva, page->writable);
+	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
+		frame->page = NULL;
+		page->frame = NULL;
+		if (pml4_get_page (curr->pml4, page->va))
+			pml4_clear_page (curr->pml4, page->va);
 
-	return swap_in (page, frame->kva);
+		palloc_free_page (frame->kva);
+		free (frame);
+		return false;
+	}
+
+	return true;
 }
 
 /* Returns a hash value for page p. */
