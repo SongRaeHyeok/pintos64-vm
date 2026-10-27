@@ -120,9 +120,8 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = malloc (sizeof (struct frame));
 	if (frame == NULL)
-		PANIC ("todo");
+		PANIC ("malloc fail");
 
-	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page (PAL_USER);
 	if (frame->kva == NULL)
 		PANIC ("todo");
@@ -130,6 +129,8 @@ vm_get_frame (void) {
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
+	
+	/* return valid address */
 	return frame;
 }
 
