@@ -1,10 +1,9 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
-#include "kernel/hash.h"
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
-#include <debug.h>
+#include "threads/vaddr.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -64,32 +63,29 @@ err:
 
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
-spt_find_page (struct supplemental_page_table *spt, void *va ) {
-	/* page 구조체 생성 */
+spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page page;
-	page.va = va;
+	/* TODO: Fill this function. */
+	struct hash_elem *e;
 
-	/* 페이지 찾기 */
-	struct hash_elem *elem = hash_find (&spt->hash, &page.elem);
-	if (elem != NULL){
-		return hash_entry (elem, struct page, elem);
-	} 
+	page.va = pg_round_down (va);
+	e = hash_find (&spt->hash, &page.elem);
 
-	return NULL;
+	if (e == NULL)
+		return NULL;
+	
+	return hash_entry (e, struct page, elem);
 }
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt,
-		struct page *page) {
+spt_insert_page (struct supplemental_page_table *spt UNUSED,
+		struct page *page UNUSED) {
 	bool succ = false;
-	
-	/* spt_find_page 로 va가 이미 있는 페이지인지 찾기 */
-	if (!spt_find_page(spt, page->va)){	
-		/* hash 에 insert 실행 */
-		hash_insert(&spt->hash, &page->elem);
+	/* TODO: Fill this function. */
+	if (hash_insert (&spt->hash, &page->elem) == NULL)
 		succ = true;
-	} 
+
 	return succ;
 
 }
@@ -185,7 +181,6 @@ vm_do_claim_page (struct page *page) {
 
 	return swap_in (page, frame->kva);
 }
-
 
 /* Returns a hash value for page p. */
 uint64_t
