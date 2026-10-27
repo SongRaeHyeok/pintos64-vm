@@ -118,7 +118,21 @@ vm_evict_frame (void) {
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
-	/* TODO: Fill this function. */
+
+	frame = malloc (sizeof *frame);
+	if (frame == NULL)
+		return NULL;
+
+	frame->page = NULL;
+	frame->kva = palloc_get_page (PAL_USER);
+
+	if (frame->kva == NULL) {
+		free (frame);
+		struct frame *f = vm_evict_frame ();
+		f->page = NULL;
+		return f;
+	}
+	/* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -157,9 +171,9 @@ vm_dealloc_page (struct page *page) {
 
 /* Claim the page that allocate on VA. */
 bool
-vm_claim_page (void *va UNUSED) {
+vm_claim_page (void *va) {
 	struct page *page = NULL;
-	/* TODO: Fill this function */
+	page = pg_round_down (va);
 
 	return vm_do_claim_page (page);
 }
@@ -168,14 +182,26 @@ vm_claim_page (void *va UNUSED) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
+	struct thread *curr = thread_current ();
+	if (frame == NULL)
+		return false;
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
-	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
+		frame->page = NULL;
+		page->frame = NULL;
+		if (pml4_get_page (curr->pml4, page->va))
+			pml4_clear_page (curr->pml4, page->va);
 
-	return swap_in (page, frame->kva);
+		palloc_free_page (frame->kva);
+		free (frame);
+		return false;
+	}
+
+	return true;
 }
 
 /* Returns a hash value for page p. */
