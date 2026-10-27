@@ -65,7 +65,6 @@ err:
 struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page page;
-	/* TODO: Fill this function. */
 	struct hash_elem *e;
 
 	page.va = pg_round_down (va);
@@ -79,10 +78,8 @@ spt_find_page (struct supplemental_page_table *spt, void *va) {
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
+spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 	bool succ = false;
-	/* TODO: Fill this function. */
 	if (hash_insert (&spt->hash, &page->elem) == NULL)
 		succ = true;
 
