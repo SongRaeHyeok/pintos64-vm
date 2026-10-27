@@ -62,11 +62,25 @@ err:
 
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
+spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page *page = NULL;
-	/* TODO: Fill this function. */
+	struct hash_iterator *i = NULL;
+	struct hash_elem *e = NULL;
 
-	return page;
+	if (!hash_empty (&spt->hash)) {
+		hash_first (i, &spt->hash);
+		e = hash_cur (i);
+
+		while (e != NULL) {
+			page = hash_entry (e, struct page, elem);
+			if (page->va == va) {
+				return page;
+			}
+			e = hash_next (i);
+		}
+	}
+
+	return NULL;
 }
 
 /* Insert PAGE into spt with validation. */
@@ -74,7 +88,9 @@ bool
 spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	int succ = false;
-	/* TODO: Fill this function. */
+	/* TODO: Fill this function. */	
+	if (!hash_insert (&spt->hash, &page->elem))
+		succ = true;
 
 	return succ;
 }
@@ -174,6 +190,7 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	hash_init (&spt->hash, page_hash, page_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
