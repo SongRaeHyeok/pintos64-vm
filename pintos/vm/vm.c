@@ -63,7 +63,7 @@ err:
 
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
+spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page page;
 	/* TODO: Fill this function. */
 	struct hash_elem *e;
@@ -87,7 +87,6 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		succ = true;
 
 	return succ;
-
 }
 
 void
