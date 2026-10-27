@@ -65,6 +65,18 @@ struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: Fill this function. */
+	struct hash_iterator *i;
+	hash_first (i, &spt->hash);
+	struct hash_elem *e = NULL;
+	if (!hash_empty (&spt->hash)) {
+		for (e = hash_cur(i); e != NULL; e = hash_next(i)) {
+			struct page *p = hash_entry (e, struct page, elem);
+			if (p->va == va) {
+				page = p;
+				break;
+			}
+		}
+	}
 
 	return page;
 }
@@ -75,6 +87,11 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	int succ = false;
 	/* TODO: Fill this function. */
+	struct hash_elem *e = &page->elem;
+	if (hash_find (spt, e) == NULL) { /* 중복 체크만 했는데 따로 체크할 거 더 있나? */
+		succ = true;
+		hash_insert (spt, e);
+	}
 
 	return succ;
 }
@@ -174,6 +191,7 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	hash_init (&spt->hash, page_hash, page_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
