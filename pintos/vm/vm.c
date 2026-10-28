@@ -46,17 +46,36 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	ASSERT (VM_TYPE (type) != VM_UNINIT);
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
-	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
+		bool (*initializer) (struct page *, enum vm_type, void *);
 
-		/* TODO: Insert the page into the spt. */
+		switch (VM_TYPE (type)) {
+			case VM_ANON:
+				initializer = anon_initializer;
+				break;
+			case VM_FILE:
+				initializer = file_backed_initializer;
+				break;
+			default:
+				goto err;
+		}
+
+		struct page *page = malloc (sizeof *page);
+		if (page == NULL)
+			goto err;
+
+		uninit_new (page, upage, init, type, aux, initializer);
+		page->writable = writable;	
+		
+		if (!spt_insert_page (spt, page)) {
+			free (page);
+			goto err;
+		}
+		return true;
 	}
 err:
 	return false;
@@ -120,8 +139,9 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = malloc (sizeof (struct frame));
 	if (frame == NULL)
-		PANIC ("malloc fail");
+		PANIC ("todo");
 
+	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page (PAL_USER);
 	if (frame->kva == NULL)
 		PANIC ("todo");
@@ -129,8 +149,6 @@ vm_get_frame (void) {
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
-	
-	/* return valid address */
 	return frame;
 }
 
@@ -150,9 +168,26 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
+	
+	/* 1. NULL이거나 커널 영역 주소면 잘못된 접근 */
+	if (addr == NULL || is_kernel_vaddr (addr))
+		return false;
 
+	/* 2. 페이지는 매핑돼 있는데 권한 위반(읽기 전용에 쓰기 등)으로 난 fault.
+	 *    COW를 구현하기 전까지는 처리할 수 없음 */
+	if (!not_present)
+		return false;
+
+	/* 3. SPT에서 이 주소의 page 찾기 (내부에서 pg_round_down) */
+	page = spt_find_page (spt, addr);
+	if (page == NULL)
+		return false;		/* 등록되지 않은 주소 (stack growth는 다음 단계) */
+
+	/* 4. 읽기 전용 페이지에 쓰려고 하면 거부 */
+	if (write && !page->writable)
+		return false;
+
+	/* 5. 프레임 할당 + 매핑 + 내용 채우기(lazy load) */
 	return vm_do_claim_page (page);
 }
 
@@ -179,24 +214,16 @@ vm_claim_page (void *va) {
 static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
-	struct thread *curr = thread_current ();
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
-	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
-		frame->page = NULL;
-		page->frame = NULL;
-		if (pml4_get_page (curr->pml4, page->va))
-			pml4_clear_page (curr->pml4, page->va);
-
-		palloc_free_page (frame->kva);
-		free (frame);
+	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	if (!pml4_set_page (thread_current ()->pml4, page->va, frame->kva, page->writable))
 		return false;
-	}
 
-	return true;
+	return swap_in (page, frame->kva);
 }
 
 /* Returns a hash value for page p. */
