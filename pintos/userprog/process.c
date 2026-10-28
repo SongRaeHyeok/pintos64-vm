@@ -879,7 +879,10 @@ lazy_load_segment (struct page *page, void *aux) {
 
 	/* aux */
 	struct file_info *file_info = aux;
-	if (!file_info->file) return false; // todo : 이 유효성 검사가 필요한가? 이미 load_segment 에서 다 했는데?
+	if (!file_info->file) {
+		free (file_info);
+		return false; 
+	}
 	
 	uint8_t *kva = page->frame->kva;
 	struct file *file = file_info->file; 
@@ -964,6 +967,10 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
+
+
+
+
 
 	return success;
 }
