@@ -964,7 +964,7 @@ setup_stack (struct intr_frame *if_) {
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
 	/* stack_bottom 에 매핑,  */
-	if (vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, true) || vm_claim_page (stack_bottom)) {
+	if (vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, true) && vm_claim_page (stack_bottom)) {
 		if_->rsp = stack_bottom + PGSIZE;
 		success = true;
 	}
