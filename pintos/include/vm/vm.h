@@ -97,12 +97,6 @@ struct supplemental_page_table {
 	struct hash hash;
 };
 
-struct lazy_aux {
-    struct file *file;    /* 빌려 쓰는 포인터 (소유하지 않음, close 금지) */
-    off_t ofs;
-    size_t read_bytes;    /* zero_bytes = PGSIZE - read_bytes 이므로 따로 저장 안 함 */
-};
-
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,

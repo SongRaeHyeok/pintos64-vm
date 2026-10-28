@@ -79,7 +79,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		return true;
 	}
 err:
-	free (page);
 	return false;
 }
 
@@ -141,7 +140,7 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = malloc (sizeof (struct frame));
 	if (frame == NULL)
-		PANIC ("todo");
+		PANIC ("malloc failed");
 
 	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page (PAL_USER);
@@ -196,7 +195,6 @@ vm_dealloc_page (struct page *page) {
 bool
 vm_claim_page (void *va) {
 	struct page *page = spt_find_page (&thread_current ()->spt, va);
-	/* TODO: Fill this function */
 	if (page == NULL)
 		return false;
 
@@ -216,7 +214,6 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
-	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
 		frame->page = NULL;
 		page->frame = NULL;

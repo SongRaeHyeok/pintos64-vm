@@ -46,7 +46,6 @@ struct task_args {
 	struct child_status *cs;
 };
 
-/* load_segment 에 사용되는 file 정보 담는 구조체 */
 struct file_info {
 	struct file *file;
 	off_t ofs;
@@ -876,19 +875,21 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	bool success = true;
 	struct file_info *file_info = (struct file_info *)aux;
-	bool held = lock_held_by_current_thread (&file_lock);
-    if (!held) lock_acquire (&file_lock);
-	off_t read = file_read_at (file_info->file , page->frame->kva, file_info->read_bytes, file_info->ofs);
-    if (!held) lock_release (&file_lock);
-	if (read < file_info->read_bytes) {
-		free (file_info);
-		return false;
-	}
 
+	bool held = lock_held_by_current_thread (&file_lock);
+	if (!held) lock_acquire (&file_lock);
+	off_t read = file_read_at (file_info->file , page->frame->kva, file_info->read_bytes, file_info->ofs);
+	if (!held) lock_release (&file_lock);
+
+	if (read != file_info->read_bytes) {
+		success = false;
+	}
 	memset ((char *)(page->frame->kva) + file_info->read_bytes, 0, file_info->zero_bytes);
 	free (file_info);
-	return true;
+
+	return success;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -930,7 +931,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
-        ofs += page_read_bytes;
+        ofs += PGSIZE;
     }
     return true;
 }
@@ -938,9 +939,9 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
+	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
-	/* stack_bottom 에 매핑,  */
 	if (vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, true) && vm_claim_page (stack_bottom)) {
 		if_->rsp = stack_bottom + PGSIZE;
 		success = true;
