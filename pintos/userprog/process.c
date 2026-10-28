@@ -876,6 +876,29 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+
+	/* aux */
+	struct file_info *file_info = aux;
+	if (!file_info->file) return false; // todo : 이 유효성 검사가 필요한가? 이미 load_segment 에서 다 했는데?
+	
+	uint8_t *kva = page->frame->kva;
+	struct file *file = file_info->file; 
+	off_t ofs = file_info->ofs;
+	uint32_t read_bytes = file_info->read_bytes;
+	uint32_t zero_bytes = file_info->zero_bytes;
+
+	/* load the segment from the file */
+	file_seek (file, ofs);
+	if (file_read (file, kva, read_bytes) != (int) read_bytes) {
+		free (file_info);
+		return false;
+	}
+	memset (kva + read_bytes, 0, zero_bytes);
+	
+	/* file_info 해제 */
+	free (file_info);
+	return true;
+
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
