@@ -5,6 +5,7 @@
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include "vm/uninit.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -44,21 +45,47 @@ static struct frame *vm_evict_frame (void);
  * `vm_alloc_page`. */
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
-		vm_initializer *init, void *aux) {
+		vm_initializer *init UNUSED, void *aux UNUSED) {
 
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* Check wheter the upage is already occupied or not. */
+	struct page *page = NULL;
 	if (spt_find_page (spt, upage) == NULL) {
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
+		page = malloc (sizeof (struct page));
+		if (page == NULL)
+			return false;
+		typedef bool (*page_initializer) (struct page *, enum vm_type, void *kva);
+		page_initializer initializer = NULL;
+		switch (VM_TYPE (type)) {
+			case VM_UNINIT :
+				break;
+			case VM_ANON :
+			case VM_MARKER_0 :
+				initializer = anon_initializer;
+				break;
+			case VM_FILE :
+				initializer = file_backed_initializer;
+				break;
+			default :
+				goto err;
+		}
+		uninit_new (page, upage, init, type, aux, initializer);
+		page->writable = writable;
 
 		/* TODO: Insert the page into the spt. */
+		bool success = spt_insert_page (spt, page);
+		if (success == false)
+			goto err;
+		return success;
 	}
 err:
+	free (page);
 	return false;
 }
 
@@ -146,12 +173,15 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f, void *addr, bool user, bool write, bool not_present) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	page = spt_find_page (spt, addr);
+	if (page == NULL) {
+		return false;
+	}
 
 	return vm_do_claim_page (page);
 }

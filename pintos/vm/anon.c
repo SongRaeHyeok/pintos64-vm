@@ -22,6 +22,7 @@ void
 vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
 	swap_disk = NULL;
+	swap_disk = disk_get (1, 1);
 }
 
 /* Initialize the file mapping */
@@ -31,6 +32,8 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &anon_ops;
 
 	struct anon_page *anon_page = &page->anon;
+
+	return true;
 }
 
 /* Swap in the page by read contents from the swap disk. */
