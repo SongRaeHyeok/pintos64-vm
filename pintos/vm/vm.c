@@ -177,6 +177,9 @@ vm_try_handle_fault (struct intr_frame *f, void *addr, bool user, bool write, bo
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	if (addr == NULL || (user && is_kernel_vaddr (addr))) 
+		return false;
+
 	page = spt_find_page (spt, addr);
 	if (page == NULL) {
 		return false;
@@ -207,6 +210,9 @@ vm_claim_page (void *va) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+
+	ASSERT (page->frame == NULL);
+	
 	struct frame *frame = vm_get_frame ();
 	struct thread *curr = thread_current ();
 
@@ -224,7 +230,6 @@ vm_do_claim_page (struct page *page) {
 		free (frame);
 		return false;
 	}
-
 	return true;
 }
 
