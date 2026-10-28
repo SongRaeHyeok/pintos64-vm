@@ -5,6 +5,7 @@
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include "vm/uninit.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -51,38 +52,40 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* Check wheter the upage is already occupied or not. */
+	struct page *page = NULL;
 	if (spt_find_page (spt, upage) == NULL) {
-		
-		 /* create the page, 페이지 내용 초기화하기 */
-		struct page *page = malloc (sizeof (struct page));
-		if (page == NULL) goto err;
-		
-		/* initializer 분기 처리  */
-		bool (*initializer)(struct page *, enum vm_type, void *kva);
+		/* TODO: Create the page, fetch the initialier according to the VM type,
+		 * TODO: and then create "uninit" page struct by calling uninit_new. You
+		 * TODO: should modify the field after calling the uninit_new. */
+		page = malloc (sizeof (struct page));
+		if (page == NULL)
+			return false;
 
-		switch (VM_TYPE(type)) {
-			case VM_ANON:
+		bool (*initializer) (struct page *, enum vm_type, void *kva);
+
+		switch (VM_TYPE (type)) {
+			case VM_UNINIT :
+				break;
+			case VM_ANON :
 				initializer = anon_initializer;
 				break;
-			default:
+			case VM_FILE :
 				initializer = file_backed_initializer;
 				break;
+			default :
+				goto err;
 		}
 
-		/* create uninit page */
-		uninit_new(page, upage, init, type, aux, initializer);
-
-		/* modify the field after calling the uninit_new */
+		uninit_new (page, upage, init, type, aux, initializer);
 		page->writable = writable;
 
-		if (!spt_insert_page(spt, page)){
-			free(page);
+		bool success = spt_insert_page (spt, page);
+		if (success == false)
 			goto err;
-		}
-		
-		return true;
+		return success;
 	}
 err:
+	free (page);
 	return false;
 }
 
@@ -208,6 +211,9 @@ vm_claim_page (void *va) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+
+	ASSERT (page->frame == NULL);
+	
 	struct frame *frame = vm_get_frame ();
 	struct thread *curr = thread_current ();
 
@@ -225,7 +231,6 @@ vm_do_claim_page (struct page *page) {
 		free (frame);
 		return false;
 	}
-
 	return true;
 }
 

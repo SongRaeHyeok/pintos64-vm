@@ -876,32 +876,16 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
-
-	/* aux */
-	struct file_info *file_info = aux;
-	if (!file_info->file) {
-		free (file_info);
-		return false; 
-	}
-	
-	uint8_t *kva = page->frame->kva;
-	struct file *file = file_info->file; 
-	off_t ofs = file_info->ofs;
-	uint32_t read_bytes = file_info->read_bytes;
-	uint32_t zero_bytes = file_info->zero_bytes;
-
-	/* load the segment from the file */
-	file_seek (file, ofs);
-	if (file_read (file, kva, read_bytes) != (int) read_bytes) {
+	struct file_info *file_info = (struct file_info *)aux;
+	off_t read = file_read_at (file_info->file , page->frame->kva, file_info->read_bytes, file_info->ofs);
+	if (read < file_info->read_bytes) {
 		free (file_info);
 		return false;
 	}
-	memset (kva + read_bytes, 0, zero_bytes);
-	
-	/* file_info 해제 */
+
+	memset ((char *)(page->frame->kva) + file_info->read_bytes, 0, file_info->zero_bytes);
 	free (file_info);
 	return true;
-
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -944,13 +928,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		void *aux = file_info;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux)) {
-			free(file_info);
+			free (file_info);
 			return false;
 		}
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
+		ofs += PGSIZE;
 		upage += PGSIZE;
 		ofs += page_read_bytes;
 	}
