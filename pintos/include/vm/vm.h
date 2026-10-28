@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "threads/palloc.h"
 #include <hash.h>
+#include "filesys/off_t.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -35,6 +36,7 @@ enum vm_type {
 
 struct page_operations;
 struct thread;
+struct file;
 
 #define VM_TYPE(type) ((type) & 7) 
 
@@ -93,6 +95,12 @@ struct page_operations {
  * All designs up to you for this. */
 struct supplemental_page_table {
 	struct hash hash;
+};
+
+struct lazy_aux {
+    struct file *file;    /* 빌려 쓰는 포인터 (소유하지 않음, close 금지) */
+    off_t ofs;
+    size_t read_bytes;    /* zero_bytes = PGSIZE - read_bytes 이므로 따로 저장 안 함 */
 };
 
 #include "threads/thread.h"

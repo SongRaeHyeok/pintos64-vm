@@ -47,42 +47,36 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	ASSERT (VM_TYPE (type) != VM_UNINIT);
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
-	/* Check wheter the upage is already occupied or not. */
-	struct page *page = NULL;
 	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
-		page = malloc (sizeof (struct page));
-		if (page == NULL)
-			return false;
-
-		bool (*initializer) (struct page *, enum vm_type, void *kva);
+		bool (*initializer) (struct page *, enum vm_type, void *);
 
 		switch (VM_TYPE (type)) {
-			case VM_UNINIT :
-				break;
-			case VM_ANON :
+			case VM_ANON:
 				initializer = anon_initializer;
 				break;
-			case VM_FILE :
+			case VM_FILE:
 				initializer = file_backed_initializer;
 				break;
-			default :
+			default:
 				goto err;
 		}
 
-		uninit_new (page, upage, init, type, aux, initializer);
-		page->writable = writable;
-
-		bool success = spt_insert_page (spt, page);
-		if (success == false)
+		struct page *page = malloc (sizeof *page);
+		if (page == NULL)
 			goto err;
-		return success;
+
+		uninit_new (page, upage, init, type, aux, initializer);
+		page->writable = writable;	
+		
+		if (!spt_insert_page (spt, page)) {
+			free (page);
+			goto err;
+		}
+		return true;
 	}
 err:
 	free (page);
@@ -147,8 +141,9 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = malloc (sizeof (struct frame));
 	if (frame == NULL)
-		PANIC ("malloc fail");
+		PANIC ("todo");
 
+	/* TODO: Fill this function. */
 	frame->kva = palloc_get_page (PAL_USER);
 	if (frame->kva == NULL)
 		PANIC ("todo");
@@ -156,8 +151,6 @@ vm_get_frame (void) {
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
-	
-	/* return valid address */
 	return frame;
 }
 
@@ -178,6 +171,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	if (addr == NULL || is_kernel_vaddr (addr))
+		return false;
 	
 	/* spt 에서 조회 : fake fault 구분 */
 	struct page *page = spt_find_page (spt, addr);
@@ -221,6 +216,7 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
+	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
 		frame->page = NULL;
 		page->frame = NULL;
