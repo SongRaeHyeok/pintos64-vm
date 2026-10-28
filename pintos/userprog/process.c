@@ -950,16 +950,9 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
-	void *kva = NULL;
-	if ((kva = palloc_get_page (PAL_USER)) == NULL)
-		return false;
 
-	vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, 1);
-	
-	if (pml4_set_page (thread_current ()->pml4, stack_bottom, kva, 1) == false) {
-		palloc_free_page (kva);
+	if (!vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, 1) || !vm_claim_page (stack_bottom))
 		return false;
-	}
 
 	if_->R.rbp = stack_bottom + PGSIZE;
 	if_->rsp = stack_bottom + PGSIZE;

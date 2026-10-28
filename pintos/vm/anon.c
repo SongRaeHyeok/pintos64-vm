@@ -2,6 +2,8 @@
 
 #include "vm/vm.h"
 #include "devices/disk.h"
+#include "threads/vaddr.h"
+#include <string.h>
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -33,6 +35,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 
 	struct anon_page *anon_page = &page->anon;
 
+	memset (kva, 0, PGSIZE);
 	return true;
 }
 
