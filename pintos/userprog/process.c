@@ -46,6 +46,13 @@ struct task_args {
 	struct child_status *cs;
 };
 
+struct payload {
+	struct file *file;
+	off_t offset;
+	size_t read_bytes;
+	size_t zero_bytes;
+};
+
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
  * The new thread may be scheduled (and may even exit)
  * before process_create_initd() returns. Returns the initd's
@@ -868,6 +875,16 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	struct payload *payload = (struct payload *)aux;
+	off_t read = file_read_at (payload->file , page->frame->kva, payload->read_bytes, payload->offset);
+	if (read < payload->read_bytes) {
+		free (payload);
+		return false;
+	}
+
+	memset ((char *)(page->frame->kva) + payload->read_bytes, 0, payload->zero_bytes);
+	free (payload);
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -900,13 +917,25 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+		struct payload *payload = malloc (sizeof (struct payload));
+		if (payload == NULL)
 			return false;
+		payload->file = file;
+		payload->offset = ofs;
+		payload->read_bytes = page_read_bytes;
+		payload->zero_bytes = page_zero_bytes;
+		aux = payload;
+
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+					writable, lazy_load_segment, aux)) {
+			free (payload);
+			return false;
+		}
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
+		ofs += PGSIZE;
 		upage += PGSIZE;
 	}
 	return true;
@@ -915,7 +944,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
-	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
@@ -923,6 +951,12 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
 
-	return success;
+	if (!vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, 1) || !vm_claim_page (stack_bottom))
+		return false;
+
+	if_->R.rbp = stack_bottom + PGSIZE;
+	if_->rsp = stack_bottom + PGSIZE;
+
+	return true;
 }
 #endif /* VM */
