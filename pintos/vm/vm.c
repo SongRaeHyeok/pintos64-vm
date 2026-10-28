@@ -45,7 +45,7 @@ static struct frame *vm_evict_frame (void);
  * `vm_alloc_page`. */
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
-		vm_initializer *init UNUSED, void *aux UNUSED) {
+		vm_initializer *init, void *aux) {
 
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
@@ -60,8 +60,9 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		page = malloc (sizeof (struct page));
 		if (page == NULL)
 			return false;
-		typedef bool (*page_initializer) (struct page *, enum vm_type, void *kva);
-		page_initializer initializer = NULL;
+
+		bool (*initializer) (struct page *, enum vm_type, void *kva);
+
 		switch (VM_TYPE (type)) {
 			case VM_UNINIT :
 				break;
@@ -74,10 +75,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			default :
 				goto err;
 		}
+
 		uninit_new (page, upage, init, type, aux, initializer);
 		page->writable = writable;
 
-		/* TODO: Insert the page into the spt. */
 		bool success = spt_insert_page (spt, page);
 		if (success == false)
 			goto err;
@@ -172,18 +173,18 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f, void *addr, bool user, bool write, bool not_present) {
+vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
+		bool user, bool write, bool not_present) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
-	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-	if (addr == NULL || (user && is_kernel_vaddr (addr))) 
+	
+	/* spt 에서 조회 : fake fault 구분 */
+	struct page *page = spt_find_page (spt, addr);
+	
+	if (!page || !not_present || (!page->writable && write)) {
 		return false;
-
-	page = spt_find_page (spt, addr);
-	if (page == NULL) {
-		return false;
-	}
+	} 	
 
 	return vm_do_claim_page (page);
 }
