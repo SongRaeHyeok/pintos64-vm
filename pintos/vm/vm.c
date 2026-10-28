@@ -52,11 +52,28 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
+		struct page *page = palloc_get_page (PAL_USER);
+		if (page == NULL)
+			return false;
 
-		/* TODO: Insert the page into the spt. */
+		void *initializer;
+		switch (VM_TYPE(type)) {
+			case (VM_ANON):
+			  initializer = anon_initializer;
+				break;
+			case (VM_FILE):
+				initializer = file_backed_initializer;
+				break;
+		}
+
+		uninit_new (page, pg_round_down (upage), init, type, aux, initializer);
+		page->writable = writable;
+
+		if (!spt_insert_page (spt, page)) {
+			palloc_free_page (page);
+			return false;
+		}
+		return true;
 	}
 err:
 	return false;
@@ -118,20 +135,25 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = malloc (sizeof (struct frame));
-	if (frame == NULL)
-		PANIC ("malloc fail");
+  struct frame *frame = NULL;
 
-	frame->kva = palloc_get_page (PAL_USER);
-	if (frame->kva == NULL)
-		PANIC ("todo");
-	frame->page = NULL;	
+  frame = malloc (sizeof *frame);
+  if (frame == NULL)
+    PANIC('malloc failed');
 
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
-	
-	/* return valid address */
-	return frame;
+  frame->page = NULL;
+  frame->kva = palloc_get_page (PAL_USER);
+
+  if (frame->kva == NULL) {
+    free (frame);
+    frame = vm_evict_frame ();
+    frame->page = NULL;
+  }
+  /* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
+
+  ASSERT (frame != NULL);
+  ASSERT (frame->page == NULL);
+  return frame;
 }
 
 /* Growing the stack. */
@@ -152,6 +174,10 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	/* is_user_vaddr를 신뢰할 수 있나? 단순히 KERN_BASE보다 낮은 경우인데 */
+	if (addr == NULL || (user && is_kernel_vaddr (addr)))
+			return false;
+	page = spt_find_page (spt, addr);
 
 	return vm_do_claim_page (page);
 }
@@ -168,7 +194,6 @@ vm_dealloc_page (struct page *page) {
 bool
 vm_claim_page (void *va) {
 	struct page *page = spt_find_page (&thread_current ()->spt, va);
-	/* TODO: Fill this function */
 	if (page == NULL)
 		return false;
 
