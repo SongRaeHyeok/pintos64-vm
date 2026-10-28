@@ -46,10 +46,11 @@ struct task_args {
 	struct child_status *cs;
 };
 
-struct seg_info {
+struct file_info {
 	struct file *file;
-	uint32_t page_read_bytes;
 	off_t ofs;
+	uint32_t read_bytes;
+	uint32_t zero_bytes;
 };
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -875,17 +876,19 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
 	bool success = true;
-	struct seg_info *seg = aux;
-	
-	off_t bytes_read = file_read_at (seg->file, page->frame->kva, seg->page_read_bytes, seg->ofs);
-	if (bytes_read != seg->page_read_bytes) {
+	struct file_info *file_info = (struct file_info *)aux;
+
+	bool held = lock_held_by_current_thread (&file_lock);
+	if (!held) lock_acquire (&file_lock);
+	off_t read = file_read_at (file_info->file , page->frame->kva, file_info->read_bytes, file_info->ofs);
+	if (!held) lock_release (&file_lock);
+
+	if (read != file_info->read_bytes) {
 		success = false;
 	}
-	memset (page->frame->kva + bytes_read, 0, PGSIZE - bytes_read);
-	free (aux);
-	/* 페이지 폴트 발생 안 한 경우 aux의 해제는 spt 정리할 때 이뤄져야 한다.
-		* spt에서 VM_TYPE이 VM_UNINIT인 경우에 대해서 aux 해제하도록 처리할 수 있을듯 */
-	
+	memset ((char *)(page->frame->kva) + file_info->read_bytes, 0, file_info->zero_bytes);
+	free (file_info);
+
 	return success;
 }
 
@@ -911,36 +914,26 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (ofs % PGSIZE == 0);
 
 	while (read_bytes > 0 || zero_bytes > 0) {
-		/* Do calculate how to fill this page.
-		 * We will read PAGE_READ_BYTES bytes from FILE
-		 * and zero the final PAGE_ZERO_BYTES bytes. */
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		struct seg_info *aux = NULL;
-		aux = malloc (sizeof (struct seg_info));
-		if (aux == NULL)
-			return false;
-		
-		*aux = (struct seg_info) {
-			.file = file,
-			.page_read_bytes = page_read_bytes,
-			.ofs = ofs,
-		};
+        struct file_info *aux = malloc (sizeof *aux);
+        if (aux == NULL)
+            return false;
+        *aux = (struct file_info) { file, ofs, page_read_bytes, page_zero_bytes };
 
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux)) {
-			free (aux);
-			return false;
-		}
+        if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable,
+                    lazy_load_segment, aux)) {
+            free (aux);
+            return false;
+        }
 
-		/* Advance. */
-		read_bytes -= page_read_bytes;
-		zero_bytes -= page_zero_bytes;
-		upage += PGSIZE;
-		ofs += PGSIZE;
-	}
-	return true;
+        read_bytes -= page_read_bytes;
+        zero_bytes -= page_zero_bytes;
+        upage += PGSIZE;
+        ofs += PGSIZE;
+    }
+    return true;
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
@@ -949,14 +942,8 @@ setup_stack (struct intr_frame *if_) {
 	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
-	/* TODO: Your code goes here */
-	if (vm_alloc_page (VM_MARKER_0 | VM_ANON, stack_bottom, 1) && vm_claim_page (stack_bottom)) {
-		if_->rsp = (uint8_t *) USER_STACK;
-		if_->R.rbp = (uint8_t *) USER_STACK;
-
+	if (vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, true) && vm_claim_page (stack_bottom)) {
+		if_->rsp = stack_bottom + PGSIZE;
 		success = true;
 	}
 

@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "threads/palloc.h"
 #include <hash.h>
+#include "filesys/off_t.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -35,6 +36,7 @@ enum vm_type {
 
 struct page_operations;
 struct thread;
+struct file;
 
 #define VM_TYPE(type) ((type) & 7) 
 

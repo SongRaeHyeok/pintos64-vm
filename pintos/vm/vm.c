@@ -5,6 +5,7 @@
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include "vm/uninit.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -46,32 +47,34 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	ASSERT (VM_TYPE (type) != VM_UNINIT);
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
-	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
-		struct page *page = palloc_get_page (PAL_USER);
-		if (page == NULL)
-			return false;
+		bool (*initializer) (struct page *, enum vm_type, void *);
 
-		void *initializer;
-		switch (VM_TYPE(type)) {
-			case (VM_ANON):
-			  initializer = anon_initializer;
+		switch (VM_TYPE (type)) {
+			case VM_ANON:
+				initializer = anon_initializer;
 				break;
-			case (VM_FILE):
+			case VM_FILE:
 				initializer = file_backed_initializer;
 				break;
+			default:
+				goto err;
 		}
 
-		uninit_new (page, pg_round_down (upage), init, type, aux, initializer);
-		page->writable = writable;
+		struct page *page = malloc (sizeof *page);
+		if (page == NULL)
+			goto err;
 
+		uninit_new (page, upage, init, type, aux, initializer);
+		page->writable = writable;	
+		
 		if (!spt_insert_page (spt, page)) {
-			palloc_free_page (page);
-			return false;
+			free (page);
+			goto err;
 		}
 		return true;
 	}
@@ -135,25 +138,19 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-  struct frame *frame = NULL;
+	struct frame *frame = malloc (sizeof (struct frame));
+	if (frame == NULL)
+		PANIC ("malloc failed");
 
-  frame = malloc (sizeof *frame);
-  if (frame == NULL)
-    PANIC('malloc failed');
+	/* TODO: Fill this function. */
+	frame->kva = palloc_get_page (PAL_USER);
+	if (frame->kva == NULL)
+		PANIC ("todo");
+	frame->page = NULL;	
 
-  frame->page = NULL;
-  frame->kva = palloc_get_page (PAL_USER);
-
-  if (frame->kva == NULL) {
-    free (frame);
-    frame = vm_evict_frame ();
-    frame->page = NULL;
-  }
-  /* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
-
-  ASSERT (frame != NULL);
-  ASSERT (frame->page == NULL);
-  return frame;
+	ASSERT (frame != NULL);
+	ASSERT (frame->page == NULL);
+	return frame;
 }
 
 /* Growing the stack. */
@@ -168,16 +165,20 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
-	struct page *page = NULL;
+vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
+		bool user, bool write, bool not_present) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-	/* is_user_vaddr를 신뢰할 수 있나? 단순히 KERN_BASE보다 낮은 경우인데 */
-	if (addr == NULL || (user && is_kernel_vaddr (addr)))
-			return false;
-	page = spt_find_page (spt, addr);
+	if (addr == NULL || is_kernel_vaddr (addr))
+		return false;
+	
+	/* spt 에서 조회 : fake fault 구분 */
+	struct page *page = spt_find_page (spt, addr);
+	
+	if (!page || !not_present || (!page->writable && write)) {
+		return false;
+	} 	
 
 	return vm_do_claim_page (page);
 }
@@ -203,6 +204,9 @@ vm_claim_page (void *va) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+
+	ASSERT (page->frame == NULL);
+	
 	struct frame *frame = vm_get_frame ();
 	struct thread *curr = thread_current ();
 
@@ -220,7 +224,6 @@ vm_do_claim_page (struct page *page) {
 		free (frame);
 		return false;
 	}
-
 	return true;
 }
 
