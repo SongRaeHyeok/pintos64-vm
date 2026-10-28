@@ -46,6 +46,14 @@ struct task_args {
 	struct child_status *cs;
 };
 
+/* load_segment 에 사용되는 file 정보 담는 구조체 */
+struct file_info {
+	struct file *file;
+	off_t ofs;
+	uint32_t read_bytes;
+	uint32_t zero_bytes;
+};
+
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
  * The new thread may be scheduled (and may even exit)
  * before process_create_initd() returns. Returns the initd's
@@ -865,21 +873,22 @@ install_page (void *upage, void *kpage, bool writable) {
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-    struct lazy_aux *lazy_aux = aux;
-    void *kva = page->frame->kva;
-
-    /* read()/write() 시스템 콜이 file_lock을 잡은 채 사용자 버퍼를 건드리다
-       여기로 들어올 수 있으므로, 이미 잡고 있으면 다시 잡지 않는다. */
-    bool held = lock_held_by_current_thread (&file_lock);
+	/* TODO: Load the segment from the file */
+	/* TODO: This called when the first page fault occurs on address VA. */
+	/* TODO: VA is available when calling this function. */
+	struct file_info *file_info = (struct file_info *)aux;
+	bool held = lock_held_by_current_thread (&file_lock);
     if (!held) lock_acquire (&file_lock);
-    off_t n = file_read_at (lazy_aux->file, kva, lazy_aux->read_bytes, lazy_aux->ofs);
+	off_t read = file_read_at (file_info->file , page->frame->kva, file_info->read_bytes, file_info->ofs);
     if (!held) lock_release (&file_lock);
+	if (read < file_info->read_bytes) {
+		free (file_info);
+		return false;
+	}
 
-    bool ok = (n == (off_t) lazy_aux->read_bytes);
-    if (ok)
-        memset ((uint8_t *) kva + lazy_aux->read_bytes, 0, PGSIZE - lazy_aux->read_bytes);
-    free (lazy_aux);
-    return ok;
+	memset ((char *)(page->frame->kva) + file_info->read_bytes, 0, file_info->zero_bytes);
+	free (file_info);
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -907,10 +916,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-        struct lazy_aux *aux = malloc (sizeof *aux);
+        struct file_info *aux = malloc (sizeof *aux);
         if (aux == NULL)
             return false;
-        *aux = (struct lazy_aux) { file, ofs, page_read_bytes };
+        *aux = (struct file_info) { file, ofs, page_read_bytes, page_zero_bytes };
 
         if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable,
                     lazy_load_segment, aux)) {
@@ -931,11 +940,12 @@ static bool
 setup_stack (struct intr_frame *if_) {
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
-    if (!vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, true)
-            || !vm_claim_page (stack_bottom))
-        return false;
+	/* stack_bottom 에 매핑,  */
+	if (vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom, true) && vm_claim_page (stack_bottom)) {
+		if_->rsp = stack_bottom + PGSIZE;
+		success = true;
+	}
 
-    if_->rsp = USER_STACK;
-    return true;
+	return success;
 }
 #endif /* VM */

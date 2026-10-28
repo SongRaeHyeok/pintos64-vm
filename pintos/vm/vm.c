@@ -5,6 +5,7 @@
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
+#include "vm/uninit.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -78,6 +79,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		return true;
 	}
 err:
+	free (page);
 	return false;
 }
 
@@ -164,30 +166,21 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
-	struct page *page = NULL;
-	
-	/* 1. NULL이거나 커널 영역 주소면 잘못된 접근 */
+vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
+		bool user, bool write, bool not_present) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
+	/* TODO: Validate the fault */
+	/* TODO: Your code goes here */
 	if (addr == NULL || is_kernel_vaddr (addr))
 		return false;
-
-	/* 2. 페이지는 매핑돼 있는데 권한 위반(읽기 전용에 쓰기 등)으로 난 fault.
-	 *    COW를 구현하기 전까지는 처리할 수 없음 */
-	if (!not_present)
+	
+	/* spt 에서 조회 : fake fault 구분 */
+	struct page *page = spt_find_page (spt, addr);
+	
+	if (!page || !not_present || (!page->writable && write)) {
 		return false;
+	} 	
 
-	/* 3. SPT에서 이 주소의 page 찾기 (내부에서 pg_round_down) */
-	page = spt_find_page (spt, addr);
-	if (page == NULL)
-		return false;		/* 등록되지 않은 주소 (stack growth는 다음 단계) */
-
-	/* 4. 읽기 전용 페이지에 쓰려고 하면 거부 */
-	if (write && !page->writable)
-		return false;
-
-	/* 5. 프레임 할당 + 매핑 + 내용 채우기(lazy load) */
 	return vm_do_claim_page (page);
 }
 
@@ -213,17 +206,28 @@ vm_claim_page (void *va) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+
+	ASSERT (page->frame == NULL);
+	
 	struct frame *frame = vm_get_frame ();
+	struct thread *curr = thread_current ();
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-	if (!pml4_set_page (thread_current ()->pml4, page->va, frame->kva, page->writable))
-		return false;
+	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
+		frame->page = NULL;
+		page->frame = NULL;
+		if (pml4_get_page (curr->pml4, page->va))
+			pml4_clear_page (curr->pml4, page->va);
 
-	return swap_in (page, frame->kva);
+		palloc_free_page (frame->kva);
+		free (frame);
+		return false;
+	}
+	return true;
 }
 
 /* Returns a hash value for page p. */
