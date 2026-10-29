@@ -257,78 +257,71 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 /* Copy supplemental page table from src to dst */
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-    struct supplemental_page_table *src UNUSED) {
-  struct hash_iterator i;
-  struct hash_elem *e;
-  hash_first (&i, &src->hash);
-  while (e = hash_next (&i)) {
-    struct page *page = hash_entry (e, struct page, elem);
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+			
+	ASSERT (dst == &thread_current ()->spt);
 
-		switch (VM_TYPE(page->operations->type)) {
-			case (VM_UNINIT):
-			  if (!vm_alloc_page_with_initializer (page->uninit.type, page->va, page->writable, page->uninit.init, page->uninit.aux))
-					goto error;
-				break;
-			case (VM_ANON):
-				if (!vm_alloc_page (page->operations->type, page->va, page->writable))
-					goto error;
-				/* anon page의 swap slot 정보 필요. aux? */
-				break;
-			case (VM_FILE):
-				if (!vm_alloc_page (page->operations->type, page->va, page->writable))
-					goto error;
-				/* file page에서 복사해야할 정보 확인 */
-				break;
-			default:
-				break;
-		}
+	/* hash 설정 */
+	struct hash_iterator i;
+	hash_first(&i, &src->hash);
 
-		struct page *copy = spt_find_page (dst, page->va);
+	/* spt 테이블 순회 */
+	while (hash_next(&i)) {
+		struct page *page = hash_entry (hash_cur (&i), struct page, elem);
 		
-		/* stack 정보 날아감 */
-		if (VM_TYPE(copy->operations->type) == VM_UNINIT) {
-			copy->uninit.aux = malloc (sizeof (struct file_info));
-			if (copy->uninit.aux == NULL) {
-				goto error;
-			}
-			memcpy (copy->uninit.aux, page->uninit.aux, sizeof (struct file_info));
+		struct file_info *aux = NULL;
+		struct file *file = NULL;
 
-			((struct file_info *)copy->uninit.aux)->file = file_duplicate (((struct file_info *)page->uninit.aux)->file);
-			if (((struct file_info *)copy->uninit.aux)->file == NULL) {
-				goto error;
+		/* check vm_type */
+		enum vm_type vm_type = VM_TYPE(page->operations->type);
+		vm_initializer *initializer = vm_type == VM_UNINIT ? page->uninit.init : NULL;
+
+		/* uninit 일 때 처리 */
+		if (vm_type == VM_UNINIT) {
+			aux = malloc (sizeof *aux);
+			if (aux == NULL) return false;
+
+			/* file_info 복사 */
+			struct file_info *old_aux = page->uninit.aux;
+			file = file_duplicate (old_aux->file);
+
+			*aux = (struct file_info) { file, old_aux->ofs, old_aux->read_bytes, old_aux->zero_bytes };
+		} 
+
+		/* 페이지 생성 */
+		if (!vm_alloc_page_with_initializer (page_get_type(page), page->va, 
+			page->writable, initializer, aux)) {
+				free (aux);
+				file_close (file);
+				return false;
+		}
+		
+		/* anon 일 때 처리 */
+		if (vm_type == VM_ANON) {
+			if (!vm_claim_page (page->va)) {
+				return false;
 			}
+			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
 		}
 
-		if (page->frame != NULL) {
-			if (vm_claim_page (copy->va)) {
-				memcpy (copy->frame->kva, page->frame->kva, PGSIZE);
-			}
-			else {
-				goto error;
-			}
+		/* file 일 때 처리 */
+		if (vm_type == VM_FILE) {
+			PANIC ("TODO");
 		}
-  }
-  return true;
+	}
+	
+	return true;
+}
 
-error:
-	supplemental_page_table_kill (dst);
-	return false;
+void
+hash_page_clear (struct hash_elem *e, void *aux) {
+	struct page *page = hash_entry (e, struct page, elem);
+	vm_dealloc_page (page);	
 }
 
 /* Free the resource hold by the supplemental page table */
 void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
-	/* TODO: Destroy all the supplemental_page_table hold by thread and
-	 * TODO: writeback all the modified contents to the storage. */
-	struct hash_iterator i;
-	while (!hash_empty(&spt->hash)) {
-		hash_first (&i, &spt->hash);
-		struct hash_elem *e = hash_next (&i);
-		struct page *page = hash_entry (e, struct page, elem);
-
-		hash_delete(&spt->hash, &page->elem);
-		destroy (page);
-		free (page);
-	}
+supplemental_page_table_kill (struct supplemental_page_table *spt) {
+	hash_clear (&spt->hash, hash_page_clear);
 }
