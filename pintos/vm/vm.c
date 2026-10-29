@@ -142,19 +142,21 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = malloc (sizeof (struct frame));
-	if (frame == NULL)
-		PANIC ("malloc failed");
+  struct frame *frame = malloc (sizeof *frame);
+  if (frame == NULL)
+    PANIC("malloc failed");
 
-	/* TODO: Fill this function. */
-	frame->kva = palloc_get_page (PAL_USER);
-	if (frame->kva == NULL)
-		PANIC ("todo");
-	frame->page = NULL;	
+  frame->page = NULL;
+  frame->kva = palloc_get_page (PAL_USER);
 
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
-	return frame;
+  if (frame->kva == NULL) {
+    PANIC ("TODO");
+  }
+  /* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
+
+  ASSERT (frame != NULL);
+  ASSERT (frame->page == NULL);
+  return frame;
 }
 
 /* Growing the stack. */
@@ -255,114 +257,79 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 }
 
 /* Copy supplemental page table from src to dst */
+/* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst, struct supplemental_page_table *src) {
-	struct hash_iterator iter;
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+			
+	ASSERT (dst == &thread_current ()->spt);
 
-	hash_first (&iter, &src->hash);
-	while (hash_next (&iter)) {
-		struct page *page = hash_entry (iter.elem, struct page, elem);
+	/* hash 설정 */
+	struct hash_iterator i;
+	hash_first(&i, &src->hash);
 
-		if (page->operations->type == VM_UNINIT) {
-			struct page *tmp = do_page_copy (page);
-			if (tmp == NULL)
+	/* spt 테이블 순회 */
+	while (hash_next(&i)) {
+		struct page *page = hash_entry (hash_cur (&i), struct page, elem);
+		
+		struct file_info *aux = NULL;
+		struct file *file = NULL;
+
+		/* check vm_type */
+		enum vm_type vm_type = VM_TYPE(page->operations->type);
+		vm_initializer *initializer = vm_type == VM_UNINIT ? page->uninit.init : NULL;
+
+		/* uninit 일 때 처리 */
+		if (vm_type == VM_UNINIT) {
+			aux = malloc (sizeof *aux);
+			if (aux == NULL) return false;
+
+			/* file_info 복사 */
+			struct file_info *old_aux = page->uninit.aux;
+
+			bool held = lock_held_by_current_thread (&file_lock);
+			if (!held) lock_acquire (&file_lock);
+			file = file_duplicate (old_aux->file);
+			if (!held) lock_release (&file_lock);
+
+			*aux = (struct file_info) { file, old_aux->ofs, old_aux->read_bytes, old_aux->zero_bytes, .is_aux_copied = true };
+	
+		} 
+
+		/* 페이지 생성 */
+		if (!vm_alloc_page_with_initializer (page_get_type(page), page->va, 
+			page->writable, initializer, aux)) {
+				if (aux != NULL && aux->is_aux_copied)
+					file_close (file);
+				free (aux);
 				return false;
-
-			if (!spt_insert_page (dst, tmp)) {
-				do_free_page (tmp, tmp->uninit.aux);
-				free (tmp);
+		}
+		
+		/* anon 일 때 처리 */
+		if (vm_type == VM_ANON) {
+			if (!vm_claim_page (page->va)) {
 				return false;
 			}
-			continue;
-		}
-
-		if (!vm_alloc_page (page->operations->type, page->va, page->writable) || !vm_claim_page (page->va)) {
-			supplemental_page_table_kill (dst);
-			return false;
-		}
-
-		if (page->frame != NULL) {
 			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
 		}
-		else {
-			/* TODO : 
-			 * 부모 스왑 슬롯에서 읽어서 자식 프레임에 바로 올리기 - HJM
-			 */
+
+		/* file 일 때 처리 */
+		if (vm_type == VM_FILE) {
+			PANIC ("TODO");
 		}
 	}
+	
 	return true;
+}
+
+void
+hash_page_clear (struct hash_elem *e, void *aux) {
+	struct page *page = hash_entry (e, struct page, elem);
+	vm_dealloc_page (page);	
 }
 
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
-	/* TODO: Destroy all the supplemental_page_table hold by thread and
-	 * TODO: writeback all the modified contents to the storage. */
-	struct hash_iterator iter;
-
-	while (!hash_empty (&spt->hash)) {
-		hash_first (&iter, &spt->hash);
-		hash_next (&iter);
-		struct page *page = hash_entry (iter.elem, struct page, elem);
-
-		if (page->operations->type == VM_FILE) {
-			PANIC ("Need to writeback");
-		}
-
-		destroy (page);
-		hash_delete (&spt->hash, iter.elem);
-		free (page);
-	}
-	free (spt->hash.buckets);
-}
-
-static struct page *
-do_page_copy (struct page *src) {
-	struct page *dst = malloc (sizeof (struct page));
-	if (dst == NULL)
-		return NULL;
-
-	memcpy (dst, src, sizeof (struct page));
-
-	if (src->uninit.aux != NULL) {
-		struct file_info *file_info = malloc (sizeof (struct file_info));
-		if (file_info == NULL) {
-			free (dst);
-			return NULL;
-		}
-		
-		memcpy (file_info, src->uninit.aux, sizeof (struct file_info));
-		dst->uninit.aux = file_info;
-
-		struct file_info *src_file_info = (struct file_info *)src->uninit.aux;
-
-		bool held = lock_held_by_current_thread (&file_lock);
-		if (!held) lock_acquire (&file_lock);
-		struct file *file = file_duplicate (src_file_info->file);
-		if (!held) lock_release (&file_lock);
-
-		if (file == NULL) {
-			free (file_info);
-			free (dst);
-			return NULL;
-		}
-
-		file_info->file = file;
-		file_info->own_file = true;
-	}
-
-	return dst;
-}
-
-void
-do_free_page (struct page *page, void *aux) {
-
-	struct file_info *file_info = (struct file_info *)aux;
-	if (file_info->own_file) {
-		bool held = lock_held_by_current_thread (&file_lock);
-		if (!held) lock_acquire (&file_lock);
-		file_close (file_info->file);
-		if (!held) lock_release (&file_lock);
-	}
-	free (file_info);
+	hash_clear (&spt->hash, hash_page_clear);
 }

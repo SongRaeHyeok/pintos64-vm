@@ -43,7 +43,7 @@ struct file_info {
 	off_t ofs;
 	uint32_t read_bytes;
 	uint32_t zero_bytes;
-	bool own_file;
+	bool is_aux_copied;
 };
 
 #define VM_TYPE(type) ((type) & 7) 

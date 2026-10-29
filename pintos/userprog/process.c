@@ -878,7 +878,6 @@ lazy_load_segment (struct page *page, void *aux) {
 		success = false;
 	}
 	memset ((char *)(page->frame->kva) + file_info->read_bytes, 0, file_info->zero_bytes);
-	do_free_page (page, aux);
 
 	return success;
 }
@@ -940,5 +939,4 @@ setup_stack (struct intr_frame *if_) {
 
 	return success;
 }
-
 #endif /* VM */
