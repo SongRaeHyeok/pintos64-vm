@@ -66,7 +66,6 @@ uninit_destroy (struct page *page) {
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
 	if (page->uninit.aux != NULL) {
-		file_close (((struct file_info *)page->uninit.aux)->file);
 		free (page->uninit.aux);
 	}
 }
