@@ -254,6 +254,8 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
+			
+	ASSERT (dst == &thread_current ()->spt);
 
 	/* hash 설정 */
 	struct hash_iterator i;
