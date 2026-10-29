@@ -255,14 +255,12 @@ bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
 
-	/* 첫 시작하는 page (hash elem 으로 진입?)*/
+	/* hash 설정 */
 	struct hash_iterator i;
 	hash_first(&i, &src->hash);
 
-	/* 뭘 복사해야할지? */
+	/* spt 테이블 순회 */
     while (hash_next(&i)) {
-        /* hash_table 자체 */
-        /* 복사한 hash_table hash_insert 로 하나하나 복사해오기 // 얕은 복사 주의 ! */
 		struct page *page = hash_entry (hash_cur (&i), struct page, elem);
 		
 		struct file_info *aux = NULL;
@@ -332,4 +330,8 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+
+	
+
+
 }
