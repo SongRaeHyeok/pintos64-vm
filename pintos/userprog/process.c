@@ -51,6 +51,7 @@ struct file_info {
 	off_t ofs;
 	uint32_t read_bytes;
 	uint32_t zero_bytes;
+	bool own_file;
 };
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -338,7 +339,7 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
-
+	supplemental_page_table_init (&thread_current ()->spt.hash);
 	/* And then load the binary */
 	bool success = load (file_name, &_if);
 	palloc_free_page(file_name);
@@ -887,7 +888,7 @@ lazy_load_segment (struct page *page, void *aux) {
 		success = false;
 	}
 	memset ((char *)(page->frame->kva) + file_info->read_bytes, 0, file_info->zero_bytes);
-	free (file_info);
+	do_free_page (page, aux);
 
 	return success;
 }
@@ -949,4 +950,51 @@ setup_stack (struct intr_frame *if_) {
 
 	return success;
 }
+
+struct page *
+do_page_copy (struct page *src) {
+	struct page *dst = malloc (sizeof (struct page));
+	if (dst == NULL)
+		return NULL;
+
+	memcpy (dst, src, sizeof (struct page));
+
+	struct file_info *file_info = malloc (sizeof (struct file_info));
+	if (file_info == NULL) {
+		free (dst);
+		return NULL;
+	}
+	
+	memcpy (file_info, src->uninit.aux, sizeof (struct file_info));
+	dst->uninit.aux = file_info;
+
+	struct file_info *src_file_info = (struct file_info *)src->uninit.aux;
+	lock_acquire (&file_lock);
+	struct file *file = file_duplicate (src_file_info->file);
+	lock_release (&file_lock);
+
+	if (file == NULL) {
+		free (file_info);
+		free (dst);
+		return NULL;
+	}
+
+	file_info->file = file;
+	file_info->own_file = true;
+
+	return dst;
+}
+
+void
+do_free_page (struct page *page, void *aux) {
+
+	struct file_info *file_info = (struct file_info *)aux;
+	if (file_info->own_file) {
+		lock_acquire (&file_lock);
+		file_close (file_info->file);
+		lock_release (&file_lock);
+	}
+	free (file_info);
+}
+
 #endif /* VM */

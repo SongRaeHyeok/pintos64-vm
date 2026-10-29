@@ -6,6 +6,8 @@
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
 #include "vm/uninit.h"
+#include <string.h>
+#include "userprog/process.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -39,6 +41,7 @@ page_get_type (struct page *page) {
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
+static struct page *page_copy (struct page *src);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -252,13 +255,63 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst, struct supplemental_page_table *src) {
+	struct hash_iterator iter;
+
+	hash_first (&iter, &src->hash);
+	while (hash_next (&iter)) {
+		struct page *page = hash_entry (iter.elem, struct page, elem);
+
+		if (page->operations->type == VM_UNINIT) {
+			struct page *tmp = page_copy (page);
+			if (tmp == NULL)
+				return false;
+
+			if (!spt_insert_page (dst, tmp)) {
+				do_free_page (tmp, tmp->uninit.aux);
+				free (tmp);
+				return false;
+			}
+			continue;
+		}
+
+		if (!vm_alloc_page (page->operations->type, page->va, page->writable) || !vm_claim_page (page->va)) {
+			supplemental_page_table_kill (dst);
+			return false;
+		}
+
+		if (page->frame != NULL) {
+			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
+		}
+	}
+	return true;
 }
 
 /* Free the resource hold by the supplemental page table */
 void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	struct hash_iterator iter;
+
+	while (!hash_empty (&spt->hash)) {
+		hash_first (&iter, &spt->hash);
+		hash_next (&iter);
+		struct page *page = hash_entry (iter.elem, struct page, elem);
+
+		if (page->operations->type == VM_FILE) {
+			PANIC ("Need to writeback");
+		}
+
+		destroy (page);
+		hash_delete (&spt->hash, iter.elem);
+		free (page);
+	}
+	free (spt->hash.buckets);
+}
+
+static struct page *
+page_copy (struct page *src) {
+
+	return do_page_copy (src);
 }

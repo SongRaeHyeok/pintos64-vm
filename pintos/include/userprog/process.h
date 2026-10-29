@@ -9,5 +9,7 @@ int process_exec (void *f_name);
 int process_wait (tid_t);
 void process_exit (void);
 void process_activate (struct thread *next);
+struct page *do_page_copy (struct page *src);
+void do_free_page (struct page *page, void *aux);
 
 #endif /* userprog/process.h */
