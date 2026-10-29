@@ -24,8 +24,6 @@
 #endif
 #include "threads/malloc.h"
 
-
-
 #define THREAD_NAME_MAX  16 //# Thread 이름은 최대 14 캐릭터
 
 extern struct lock file_lock;
@@ -44,14 +42,6 @@ process_init (void) {
 struct task_args {
 	char *fn_copy;
 	struct child_status *cs;
-};
-
-struct file_info {
-	struct file *file;
-	off_t ofs;
-	uint32_t read_bytes;
-	uint32_t zero_bytes;
-	bool own_file;
 };
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -339,7 +329,7 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
-	supplemental_page_table_init (&thread_current ()->spt.hash);
+	supplemental_page_table_init (&thread_current ()->spt);
 	/* And then load the binary */
 	bool success = load (file_name, &_if);
 	palloc_free_page(file_name);
@@ -949,52 +939,6 @@ setup_stack (struct intr_frame *if_) {
 	}
 
 	return success;
-}
-
-struct page *
-do_page_copy (struct page *src) {
-	struct page *dst = malloc (sizeof (struct page));
-	if (dst == NULL)
-		return NULL;
-
-	memcpy (dst, src, sizeof (struct page));
-
-	struct file_info *file_info = malloc (sizeof (struct file_info));
-	if (file_info == NULL) {
-		free (dst);
-		return NULL;
-	}
-	
-	memcpy (file_info, src->uninit.aux, sizeof (struct file_info));
-	dst->uninit.aux = file_info;
-
-	struct file_info *src_file_info = (struct file_info *)src->uninit.aux;
-	lock_acquire (&file_lock);
-	struct file *file = file_duplicate (src_file_info->file);
-	lock_release (&file_lock);
-
-	if (file == NULL) {
-		free (file_info);
-		free (dst);
-		return NULL;
-	}
-
-	file_info->file = file;
-	file_info->own_file = true;
-
-	return dst;
-}
-
-void
-do_free_page (struct page *page, void *aux) {
-
-	struct file_info *file_info = (struct file_info *)aux;
-	if (file_info->own_file) {
-		lock_acquire (&file_lock);
-		file_close (file_info->file);
-		lock_release (&file_lock);
-	}
-	free (file_info);
 }
 
 #endif /* VM */

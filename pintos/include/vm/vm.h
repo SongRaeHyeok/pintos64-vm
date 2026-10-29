@@ -38,6 +38,14 @@ struct page_operations;
 struct thread;
 struct file;
 
+struct file_info {
+	struct file *file;
+	off_t ofs;
+	uint32_t read_bytes;
+	uint32_t zero_bytes;
+	bool own_file;
+};
+
 #define VM_TYPE(type) ((type) & 7) 
 
 uint64_t page_hash (const struct hash_elem *p_, void *aux);

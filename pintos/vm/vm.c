@@ -9,6 +9,7 @@
 #include <string.h>
 #include "userprog/process.h"
 
+extern struct lock file_lock;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -41,7 +42,7 @@ page_get_type (struct page *page) {
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
-static struct page *page_copy (struct page *src);
+static struct page *do_page_copy (struct page *src);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -263,7 +264,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
 		struct page *page = hash_entry (iter.elem, struct page, elem);
 
 		if (page->operations->type == VM_UNINIT) {
-			struct page *tmp = page_copy (page);
+			struct page *tmp = do_page_copy (page);
 			if (tmp == NULL)
 				return false;
 
@@ -311,7 +312,52 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 }
 
 static struct page *
-page_copy (struct page *src) {
+do_page_copy (struct page *src) {
+	struct page *dst = malloc (sizeof (struct page));
+	if (dst == NULL)
+		return NULL;
 
-	return do_page_copy (src);
+	memcpy (dst, src, sizeof (struct page));
+
+	if (src->uninit.aux != NULL) {
+		struct file_info *file_info = malloc (sizeof (struct file_info));
+		if (file_info == NULL) {
+			free (dst);
+			return NULL;
+		}
+		
+		memcpy (file_info, src->uninit.aux, sizeof (struct file_info));
+		dst->uninit.aux = file_info;
+
+		struct file_info *src_file_info = (struct file_info *)src->uninit.aux;
+
+		bool held = lock_held_by_current_thread (&file_lock);
+		if (!held) lock_acquire (&file_lock);
+		struct file *file = file_duplicate (src_file_info->file);
+		if (!held) lock_release (&file_lock);
+
+		if (file == NULL) {
+			free (file_info);
+			free (dst);
+			return NULL;
+		}
+
+		file_info->file = file;
+		file_info->own_file = true;
+	}
+
+	return dst;
+}
+
+void
+do_free_page (struct page *page, void *aux) {
+
+	struct file_info *file_info = (struct file_info *)aux;
+	if (file_info->own_file) {
+		bool held = lock_held_by_current_thread (&file_lock);
+		if (!held) lock_acquire (&file_lock);
+		file_close (file_info->file);
+		if (!held) lock_release (&file_lock);
+	}
+	free (file_info);
 }
