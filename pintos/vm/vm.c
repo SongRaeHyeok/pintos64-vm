@@ -252,8 +252,75 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+
+	/* 첫 시작하는 page (hash elem 으로 진입?)*/
+	struct hash_iterator i;
+	hash_first(&i, &src->hash);
+
+	/* 뭘 복사해야할지? */
+    while (hash_next(&i)) {
+        /* hash_table 자체 */
+        /* 복사한 hash_table hash_insert 로 하나하나 복사해오기 // 얕은 복사 주의 ! */
+		struct page *page = hash_entry (hash_cur (&i), struct page, elem);
+		
+		struct file_info *aux = NULL;
+		struct file *file = NULL;
+
+		/* check vm_type */
+		enum vm_type vm_type;
+		vm_initializer *initializer = NULL;
+
+		switch (page->operations->type) {
+			case VM_FILE:
+				vm_type = VM_FILE;
+				break;
+			case VM_ANON:
+				vm_type = VM_ANON;
+				break;
+			default:
+				vm_type = VM_UNINIT;
+				initializer = page->uninit.init;
+				break;
+		}
+		
+		/* uninit 일 때 처리 */
+		if (vm_type == VM_UNINIT) {
+			aux = malloc (sizeof *aux);
+			if (aux == NULL) return false;
+
+			/* file_info 복사 */
+			struct file_info *old_aux = page->uninit.aux;
+			// file = malloc (sizeof *aux);
+			file = file_duplicate (old_aux->file);
+
+			*aux = (struct file_info) { file, old_aux->ofs, old_aux->read_bytes, old_aux->zero_bytes };
+
+		} 
+
+		/* 페이지 생성 */
+		if (!vm_alloc_page_with_initializer (page_get_type(page), page->va, 
+			page->writable, initializer, aux)) {
+				free (aux);
+				file_close (file);
+				return false;
+		}
+		
+		/* anon 일 때 처리 */
+		if (vm_type == VM_ANON) {
+			if (!vm_claim_page (page->va)) {
+				return false;
+			}
+			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
+		}
+		
+		
+    }
+	
+	return true;
+
+
 }
 
 /* Free the resource hold by the supplemental page table */
