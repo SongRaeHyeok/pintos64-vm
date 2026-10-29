@@ -290,7 +290,6 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 			/* file_info 복사 */
 			struct file_info *old_aux = page->uninit.aux;
-			// file = malloc (sizeof *aux);
 			file = file_duplicate (old_aux->file);
 
 			*aux = (struct file_info) { file, old_aux->ofs, old_aux->read_bytes, old_aux->zero_bytes };
@@ -325,12 +324,27 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 }
 
+void
+hash_page_clear (struct hash_elem *e, void *aux) {
+	struct page *page = hash_entry (e, struct page, elem);
+
+
+}
+
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 
+
+	hash_clear (spt->hash, )
+
+		// switch (page->operations->type) {
+		// 	case VM_FILE:
+
+			
+		// }
 	
 
 
