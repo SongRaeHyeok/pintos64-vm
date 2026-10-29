@@ -314,7 +314,11 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			}
 			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
 		}
-		
+
+		/* file 일 때 처리 */
+		if (vm_type == VM_FILE) {
+			PANIC ("TODO");
+		}		
 		
     }
 	
