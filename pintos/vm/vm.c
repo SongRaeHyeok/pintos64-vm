@@ -284,6 +284,11 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
 		if (page->frame != NULL) {
 			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
 		}
+		else {
+			/* TODO : 
+			 * 부모 스왑 슬롯에서 읽어서 자식 프레임에 바로 올리기 - HJM
+			 */
+		}
 	}
 	return true;
 }
