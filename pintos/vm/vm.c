@@ -257,78 +257,86 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 /* Copy supplemental page table from src to dst. */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
-        struct supplemental_page_table *src) {
-    /* vm_alloc_page와 vm_claim_page는 현재 스레드의 SPT를 사용한다. */
-    ASSERT (dst == &thread_current ()->spt);
+		struct supplemental_page_table *src) {
+	ASSERT (dst == &thread_current ()->spt);
 
-    if (!dst->initialized || !src->initialized)
-        return false;
+	/* hash 설정 */
+	struct hash_iterator i;
+	hash_first(&i, &src->hash);
 
-    struct hash_iterator i;
-    hash_first (&i, &src->hash);
+	/* spt 테이블 순회 */
+    while (hash_next(&i)) {
+		struct page *page = hash_entry (hash_cur (&i), struct page, elem);
+		
+		struct file_info *aux = NULL;
+		struct file *file = NULL;
 
-    while (hash_next (&i)) {
-        struct page *parent_page = hash_entry (hash_cur (&i), struct page, elem);
-        enum vm_type type = parent_page->operations->type;
+		/* check vm_type */
+		enum vm_type vm_type;
+		vm_initializer *initializer = NULL;
 
-        if (type == VM_UNINIT) {
-            struct file_info *aux = NULL;
+		switch (page->operations->type) {
+			case VM_FILE:
+				vm_type = VM_FILE;
+				break;
+			case VM_ANON:
+				vm_type = VM_ANON;
+				break;
+			default:
+				vm_type = VM_UNINIT;
+				initializer = page->uninit.init;
+				break;
+		}
+		
+		/* uninit 일 때 처리 */
+		if (vm_type == VM_UNINIT) {
+			aux = malloc (sizeof *aux);
+			if (aux == NULL) return false;
 
-            /* 부모와 자식이 같은 aux를 해제하지 않도록 따로 복사한다. */
-            if (parent_page->uninit.aux != NULL) {
-                aux = malloc (sizeof *aux);
-                if (aux == NULL)
-                    return false;
+			/* file_info 복사 */
+			struct file_info *old_aux = page->uninit.aux;
+			file = file_duplicate (old_aux->file);
 
-                memcpy (aux, parent_page->uninit.aux, sizeof *aux);
-            }
+			*aux = (struct file_info) { file, old_aux->ofs, old_aux->read_bytes, old_aux->zero_bytes };
 
-            if (!vm_alloc_page_with_initializer (
-                    parent_page->uninit.type,
-                    parent_page->va,
-                    parent_page->writable,
-                    parent_page->uninit.init,
-                    aux)) {
-                free (aux);
-                return false;
-            }
-        } else {
-            /* 현재 단계에서는 메모리에 있는 anonymous page만 처리. */
-            if (type != VM_ANON || parent_page->frame == NULL)
-                return false;
+		} 
 
-            if (!vm_alloc_page (type, parent_page->va, parent_page->writable))
-                return false;
-        }
+		/* 페이지 생성 */
+		if (!vm_alloc_page_with_initializer (page_get_type(page), page->va, 
+			page->writable, initializer, aux)) {
+				free (aux);
+				file_close (file);
+				return false;
+		}
+		
+		/* anon 일 때 처리 */
+		if (vm_type == VM_ANON) {
+			if (!vm_claim_page (page->va)) {
+				return false;
+			}
+			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
+		}
 
-        /* 생성한 uninit page에 frame을 연결하고 초기화한다. */
-        if (!vm_claim_page (parent_page->va))
-            return false;
-
-        /* 이미 초기화된 부모 페이지는 현재 메모리 내용을 복사한다. */
-        if (type != VM_UNINIT) {
-            struct page *child_page = spt_find_page (dst, parent_page->va);
-
-            memcpy (child_page->frame->kva, parent_page->frame->kva, PGSIZE);
-        }
+		/* file 일 때 처리 */
+		if (vm_type == VM_FILE) {
+			PANIC ("TODO");
+		}		
+		
     }
+	
+	return true;
 
-    return true;
+
 }
 
-/* hash_destroy가 각 page에 대해 호출하는 함수. */
-static void
-page_free (struct hash_elem *e, void *aux UNUSED) {
-    struct page *page = hash_entry (e, struct page, elem);
-    vm_dealloc_page (page);
+void
+hash_page_clear (struct hash_elem *e, void *aux) {
+	struct page *page = hash_entry (e, struct page, elem);
+	vm_dealloc_page (page);	
 }
 
-/* Free all resources owned by the supplemental page table. */
+/* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
-    if (!spt->initialized)
-        return;
-
-    hash_destroy (&spt->hash, page_free);
-    spt->initialized = false;
+	hash_clear (&spt->hash, hash_page_clear);
 }

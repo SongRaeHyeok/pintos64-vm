@@ -4,7 +4,6 @@
 #include "threads/palloc.h"
 #include <hash.h>
 #include "filesys/off_t.h"
-#include <stdint.h>
 
 enum vm_type {
 	/* page not initialized */
@@ -40,10 +39,10 @@ struct thread;
 struct file;
 
 struct file_info {
-    struct file *file;
-    off_t ofs;
-    uint32_t read_bytes;
-    uint32_t zero_bytes;
+	struct file *file;
+	off_t ofs;
+	uint32_t read_bytes;
+	uint32_t zero_bytes;
 };
 
 #define VM_TYPE(type) ((type) & 7) 

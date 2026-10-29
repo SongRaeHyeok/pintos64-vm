@@ -63,5 +63,6 @@ uninit_initialize (struct page *page, void *kva) {
  * PAGE will be freed by the caller. */
 static void
 uninit_destroy (struct page *page) {
+	struct uninit_page *uninit UNUSED = &page->uninit;
     free (page->uninit.aux);
 }
