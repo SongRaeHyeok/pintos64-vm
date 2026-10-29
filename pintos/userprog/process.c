@@ -46,13 +46,6 @@ struct task_args {
 	struct child_status *cs;
 };
 
-struct file_info {
-	struct file *file;
-	off_t ofs;
-	uint32_t read_bytes;
-	uint32_t zero_bytes;
-};
-
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
  * The new thread may be scheduled (and may even exit)
  * before process_create_initd() returns. Returns the initd's
@@ -119,11 +112,6 @@ initd (void *f_name) {
 	thread_current()->self_status = cs;
 
 	free(args);
-
-
-#ifdef VM
-	supplemental_page_table_init (&thread_current ()->spt);
-#endif
 
 	process_init ();
 
@@ -276,12 +264,14 @@ __do_fork (void *aux) {
 
 	process_activate (current);
 #ifdef VM
-	supplemental_page_table_init (&current->spt);
-	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
-		goto error;
+    if (!supplemental_page_table_init (&current->spt))
+        goto error;
+
+    if (!supplemental_page_table_copy (&current->spt, &parent->spt))
+        goto error;
 #else
-	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
-		goto error;
+    if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
+        goto error;
 #endif
 
 	/* TODO: Your code goes here.
@@ -296,6 +286,15 @@ __do_fork (void *aux) {
 			continue;
 		current->file_p[i] = file_duplicate(parent->file_p[i]);
 		if (current->file_p[i] == NULL) goto error;
+	}
+
+	if (parent->file_run != NULL) {
+    	lock_acquire (&file_lock);
+    	current->file_run = file_duplicate (parent->file_run);
+    	lock_release (&file_lock);
+
+    	if (current->file_run == NULL) 
+		goto error;
 	}
 
 	process_init ();
@@ -338,6 +337,14 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
+
+#ifdef VM
+    if (!supplemental_page_table_init (&thread_current ()->spt)) {
+        palloc_free_page (file_name);
+        return -1;
+    }
+#endif
+
 
 	/* And then load the binary */
 	bool success = load (file_name, &_if);

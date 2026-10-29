@@ -4,6 +4,7 @@
 #include "threads/palloc.h"
 #include <hash.h>
 #include "filesys/off_t.h"
+#include <stdint.h>
 
 enum vm_type {
 	/* page not initialized */
@@ -37,6 +38,13 @@ enum vm_type {
 struct page_operations;
 struct thread;
 struct file;
+
+struct file_info {
+    struct file *file;
+    off_t ofs;
+    uint32_t read_bytes;
+    uint32_t zero_bytes;
+};
 
 #define VM_TYPE(type) ((type) & 7) 
 
@@ -85,6 +93,8 @@ struct page_operations {
 	enum vm_type type;
 };
 
+/*여기에 구조체 몰아넣자*/
+
 #define swap_in(page, v) (page)->operations->swap_in ((page), v)
 #define swap_out(page) (page)->operations->swap_out (page)
 #define destroy(page) \
@@ -95,10 +105,17 @@ struct page_operations {
  * All designs up to you for this. */
 struct supplemental_page_table {
 	struct hash hash;
+	bool initialized;
+};
+
+struct lazy_aux {
+    struct file *file;    /* 빌려 쓰는 포인터 (소유하지 않음, close 금지) */
+    off_t ofs;
+    size_t read_bytes;    /* zero_bytes = PGSIZE - read_bytes 이므로 따로 저장 안 함 */
 };
 
 #include "threads/thread.h"
-void supplemental_page_table_init (struct supplemental_page_table *spt);
+bool supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src);
 void supplemental_page_table_kill (struct supplemental_page_table *spt);
