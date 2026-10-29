@@ -6,7 +6,10 @@
 #include "threads/vaddr.h"
 #include "threads/mmu.h"
 #include "vm/uninit.h"
+#include <string.h>
+#include "userprog/process.h"
 
+extern struct lock file_lock;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -140,15 +143,13 @@ static struct frame *
 vm_get_frame (void) {
   struct frame *frame = malloc (sizeof *frame);
   if (frame == NULL)
-    PANIC('malloc failed');
+    PANIC("malloc failed");
 
   frame->page = NULL;
   frame->kva = palloc_get_page (PAL_USER);
 
   if (frame->kva == NULL) {
-    free (frame);
-    frame = vm_evict_frame ();
-    frame->page = NULL;
+    PANIC ("TODO");
   }
   /* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
 
@@ -284,16 +285,22 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 
 			/* file_info 복사 */
 			struct file_info *old_aux = page->uninit.aux;
-			file = file_duplicate (old_aux->file);
 
-			*aux = (struct file_info) { file, old_aux->ofs, old_aux->read_bytes, old_aux->zero_bytes };
+			bool held = lock_held_by_current_thread (&file_lock);
+			if (!held) lock_acquire (&file_lock);
+			file = file_duplicate (old_aux->file);
+			if (!held) lock_release (&file_lock);
+
+			*aux = (struct file_info) { file, old_aux->ofs, old_aux->read_bytes, old_aux->zero_bytes, .is_aux_copied = true };
+	
 		} 
 
 		/* 페이지 생성 */
 		if (!vm_alloc_page_with_initializer (page_get_type(page), page->va, 
 			page->writable, initializer, aux)) {
+				if (aux != NULL && aux->is_aux_copied)
+					file_close (file);
 				free (aux);
-				file_close (file);
 				return false;
 		}
 		

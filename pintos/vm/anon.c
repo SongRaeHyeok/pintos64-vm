@@ -51,5 +51,7 @@ static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 
-	free (page->frame);
+	if (page->frame != NULL)
+		free (page->frame);
+	return;
 }
