@@ -138,19 +138,23 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = malloc (sizeof (struct frame));
-	if (frame == NULL)
-		PANIC ("malloc failed");
+  struct frame *frame = malloc (sizeof *frame);
+  if (frame == NULL)
+    PANIC('malloc failed');
 
-	/* TODO: Fill this function. */
-	frame->kva = palloc_get_page (PAL_USER);
-	if (frame->kva == NULL)
-		PANIC ("todo");
-	frame->page = NULL;	
+  frame->page = NULL;
+  frame->kva = palloc_get_page (PAL_USER);
 
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
-	return frame;
+  if (frame->kva == NULL) {
+    free (frame);
+    frame = vm_evict_frame ();
+    frame->page = NULL;
+  }
+  /* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
+
+  ASSERT (frame != NULL);
+  ASSERT (frame->page == NULL);
+  return frame;
 }
 
 /* Growing the stack. */
@@ -251,9 +255,65 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 }
 
 /* Copy supplemental page table from src to dst */
+/* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+    struct supplemental_page_table *src UNUSED) {
+  struct hash_iterator i;
+  struct hash_elem *e;
+  hash_first (&i, &src->hash);
+  while (e = hash_next (&i)) {
+    struct page *page = hash_entry (e, struct page, elem);
+
+		switch (VM_TYPE(page->operations->type)) {
+			case (VM_UNINIT):
+			  if (!vm_alloc_page_with_initializer (page->uninit.type, page->va, page->writable, page->uninit.init, page->uninit.aux))
+					goto error;
+				break;
+			case (VM_ANON):
+				if (!vm_alloc_page (page->operations->type, page->va, page->writable))
+					goto error;
+				/* anon page의 swap slot 정보 필요. aux? */
+				break;
+			case (VM_FILE):
+				if (!vm_alloc_page (page->operations->type, page->va, page->writable))
+					goto error;
+				/* file page에서 복사해야할 정보 확인 */
+				break;
+			default:
+				break;
+		}
+
+		struct page *copy = spt_find_page (dst, page->va);
+		
+		/* stack 정보 날아감 */
+		if (VM_TYPE(copy->operations->type) == VM_UNINIT) {
+			copy->uninit.aux = malloc (sizeof (struct file_info));
+			if (copy->uninit.aux == NULL) {
+				goto error;
+			}
+			memcpy (copy->uninit.aux, page->uninit.aux, sizeof (struct file_info));
+
+			((struct file_info *)copy->uninit.aux)->file = file_duplicate (((struct file_info *)page->uninit.aux)->file);
+			if (((struct file_info *)copy->uninit.aux)->file == NULL) {
+				goto error;
+			}
+		}
+
+		if (page->frame != NULL) {
+			if (vm_claim_page (copy->va)) {
+				memcpy (copy->frame->kva, page->frame->kva, PGSIZE);
+			}
+			else {
+				goto error;
+			}
+		}
+  }
+  return true;
+
+error:
+	supplemental_page_table_kill (dst);
+	return false;
 }
 
 /* Free the resource hold by the supplemental page table */
@@ -261,4 +321,14 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	struct hash_iterator i;
+	while (!hash_empty(&spt->hash)) {
+		hash_first (&i, &spt->hash);
+		struct hash_elem *e = hash_next (&i);
+		struct page *page = hash_entry (e, struct page, elem);
+
+		hash_delete(&spt->hash, &page->elem);
+		destroy (page);
+		free (page);
+	}
 }
