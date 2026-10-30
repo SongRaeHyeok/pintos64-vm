@@ -184,11 +184,12 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 	/* spt 에서 조회 : fault 구분 */
 	struct page *page = spt_find_page (spt, addr);
 	
-	/* stack growth case */
+	/* user stack growth case */
+	uintptr_t rsp = user ? f->rsp : thread_current()->user_rsp;
+	
 	if (!page) { 
-		/* 1.fault 주소가 rsp 근처인지 */
 		
-		if (addr < f->rsp - 8 ) return false;
+		if (addr < rsp - 8 ) return false;
 		if (addr <= (USER_STACK - (1 << 20)) || addr >= USER_STACK) return false;
 		
 		vm_stack_growth (addr);

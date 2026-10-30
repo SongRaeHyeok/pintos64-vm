@@ -69,12 +69,12 @@ exit (int status) {
 
 static void
 range_chk (void *args, void *end_args){
-	if ((args == NULL) || !is_user_vaddr(args) || !pml4_get_page(thread_current()->pml4, args)){
+	if ((args == NULL) || !is_user_vaddr(args)){
 		exit(-1);
 	}
 	if (end_args != NULL){
 		for (uintptr_t i = (uintptr_t) pg_round_down(args); i <= end_args - 1; i += PGSIZE){
-			if (!is_user_vaddr(i) || !pml4_get_page(thread_current()->pml4, (const void *) i)){
+			if (!is_user_vaddr(i)){
 				exit(-1);
 			}
 		}
@@ -277,8 +277,9 @@ close (int fd) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f) {
 	int syscall_num = f->R.rax;
+	thread_current()->user_rsp = f->rsp;
 
 	switch (syscall_num) {
 		case SYS_HALT:
