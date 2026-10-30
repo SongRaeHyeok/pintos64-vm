@@ -161,6 +161,10 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
+	if (addr < USER_STACK - (1 << 20))
+		return;
+	
+	vm_alloc_page (VM_ANON | VM_MARKER_0, pg_round_down (addr), true);
 }
 
 /* Handle the fault on write_protected page */
@@ -172,11 +176,18 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
 		bool user, bool write, bool not_present) {
-	struct supplemental_page_table *spt = &thread_current ()->spt;
+	struct thread *curr = thread_current ();
+	struct supplemental_page_table *spt = &curr->spt;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-	if (addr == NULL || is_kernel_vaddr (addr))
+	if (addr == NULL || !is_user_vaddr (addr))
 		return false;
+
+	/* stack growth */
+	uintptr_t rsp = user ? f->rsp : curr->user_rsp;
+	if (addr >= rsp - 8 && addr < USER_STACK) {
+		vm_stack_growth (addr);
+	}
 	
 	/* spt 에서 조회 : fake fault 구분 */
 	struct page *page = spt_find_page (spt, addr);

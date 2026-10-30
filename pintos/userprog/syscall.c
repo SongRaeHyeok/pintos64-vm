@@ -17,6 +17,7 @@
 #include "include/threads/synch.h"
 #include "filesys/filesys.h"
 #include "filesys/off_t.h"
+#include "vm/vm.h"
 
 
 void syscall_entry (void);
@@ -69,14 +70,29 @@ exit (int status) {
 
 static void
 range_chk (void *args, void *end_args){
-	if ((args == NULL) || !is_user_vaddr(args) || !pml4_get_page(thread_current()->pml4, args)){
+	if ((args == NULL) || !is_user_vaddr(args)){
 		exit(-1);
 	}
-	if (end_args != NULL){
-		for (uintptr_t i = (uintptr_t) pg_round_down(args); i <= end_args - 1; i += PGSIZE){
-			if (!is_user_vaddr(i) || !pml4_get_page(thread_current()->pml4, (const void *) i)){
-				exit(-1);
+	
+	if (end_args == NULL)
+		end_args = (uintptr_t) pg_round_down(args) + 1;
+	
+	for (uintptr_t i = (uintptr_t) pg_round_down(args); i <= end_args - 1; i += PGSIZE){
+		if (!is_user_vaddr(i)){
+			exit(-1);
+		}
+		if (!spt_find_page(&thread_current()->spt, (const void *) i)) {
+			uintptr_t rsp = thread_current ()->user_rsp;
+			if (i >= rsp - 8 && i < USER_STACK) {
+				if (i < USER_STACK - (1 << 20))
+					exit(-1);
+				
+				vm_alloc_page (VM_ANON | VM_MARKER_0, pg_round_down (i), true);
+				if (!spt_find_page (&thread_current ()->spt, i))
+					exit(-1);
 			}
+			else
+				exit(-1);
 		}
 	}
 }
@@ -279,6 +295,7 @@ close (int fd) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	int syscall_num = f->R.rax;
+	thread_current ()->user_rsp = f->rsp;
 
 	switch (syscall_num) {
 		case SYS_HALT:
