@@ -188,7 +188,6 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 	uintptr_t rsp = user ? f->rsp : thread_current()->user_rsp;
 	
 	if (!page) { 
-		
 		if (addr < rsp - 8 ) return false;
 		if (addr <= (USER_STACK - (1 << 20)) || addr >= USER_STACK) return false;
 		
