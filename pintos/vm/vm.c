@@ -160,7 +160,10 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+	addr = pg_round_down(addr);
+	vm_alloc_page (VM_ANON | VM_MARKER_0, addr, true);
+	// vm_claim_page (addr);
 }
 
 /* Handle the fault on write_protected page */
@@ -170,7 +173,7 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
+vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	/* TODO: Validate the fault */
@@ -178,9 +181,20 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
 	if (addr == NULL || is_kernel_vaddr (addr))
 		return false;
 	
-	/* spt 에서 조회 : fake fault 구분 */
+	/* spt 에서 조회 : fault 구분 */
 	struct page *page = spt_find_page (spt, addr);
 	
+	/* stack growth case */
+	if (!page) { 
+		/* 1.fault 주소가 rsp 근처인지 */
+		
+		if (addr < f->rsp - 8 ) return false;
+		if (addr <= (USER_STACK - (1 << 20)) || addr >= USER_STACK) return false;
+		
+		vm_stack_growth (addr);
+		page = spt_find_page (spt, addr);
+	}
+
 	if (!page || !not_present || (!page->writable && write)) {
 		return false;
 	} 	
