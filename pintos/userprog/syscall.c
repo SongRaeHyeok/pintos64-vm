@@ -279,6 +279,7 @@ close (int fd) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	int syscall_num = f->R.rax;
+	thread_current ()->user_rsp = f->rsp;
 
 	switch (syscall_num) {
 		case SYS_HALT:

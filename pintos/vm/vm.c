@@ -42,6 +42,13 @@ page_get_type (struct page *page) {
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
+static void check_mode (struct intr_frame *f, bool user);
+static bool is_valid_access (void *addr, bool user, bool write, bool not_present);
+static bool writing_ro_page (struct page *page, bool write);
+static bool is_normal_fault (struct page *page);
+static bool is_stack_growth (void *addr, struct intr_frame *f);
+static bool in_stack_range (void *addr);
+static bool chk_rsp_pos (void *addr, struct intr_frame *f);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -160,7 +167,9 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+	vm_alloc_page (VM_ANON | VM_MARKER_0, addr, true);
+	vm_claim_page (addr);
 }
 
 /* Handle the fault on write_protected page */
@@ -170,22 +179,66 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr,
+vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
+	check_mode (f, user);
 	struct supplemental_page_table *spt = &thread_current ()->spt;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
-	if (addr == NULL || is_kernel_vaddr (addr))
-		return false;
-	
-	/* spt 에서 조회 : fake fault 구분 */
 	struct page *page = spt_find_page (spt, addr);
-	
-	if (!page || !not_present || (!page->writable && write)) {
-		return false;
-	} 	
 
-	return vm_do_claim_page (page);
+	if (!is_valid_access (addr, user, write, not_present) || writing_ro_page (page, write))
+		return false;
+	
+	if (is_normal_fault (page))
+		return vm_do_claim_page (page);
+
+	if (is_stack_growth (addr, f)) 
+		vm_stack_growth (addr);
+	
+	return false;
+}
+
+static void
+check_mode (struct intr_frame *f, bool user) {
+	if (!user)
+		f->rsp = thread_current ()->user_rsp;
+}
+
+/* 올바른 접근이면 true, 아니면 false */
+static bool
+is_valid_access (void *addr, bool user, bool write, bool not_present) {
+	if (addr == NULL || (user && is_kernel_vaddr (addr)) || !not_present)
+		return false;
+
+	return true;
+}
+
+/* 읽기 전용 페이지에 쓰려고 했으면 true */
+static bool
+writing_ro_page (struct page *page, bool write) {
+	return write && !page->writable;
+}
+
+static bool
+is_normal_fault (struct page *page) {
+	if (page)
+		return true;
+	return false;
+}
+
+/* 스택 확장이 가능하면 true, 아니면 false (오류) */
+static bool
+is_stack_growth (void *addr, struct intr_frame *f) {
+	return in_stack_range (addr) && chk_rsp_pos (addr, f);
+}
+
+static bool
+in_stack_range (void *addr) {
+	return (USER_STACK - 1<<20 <= addr && addr < USER_STACK);
+}
+
+static bool
+chk_rsp_pos (void *addr, struct intr_frame *f) {
+	return (addr >= (char *)f->rsp - 8);
 }
 
 /* Free the page.
