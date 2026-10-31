@@ -17,7 +17,6 @@
 #include "include/threads/synch.h"
 #include "filesys/filesys.h"
 #include "filesys/off_t.h"
-#include "vm/vm.h"
 
 
 void syscall_entry (void);
@@ -73,7 +72,7 @@ range_chk (void *args, void *end_args){
 	if ((args == NULL) || !is_user_vaddr(args)){
 		exit(-1);
 	}
-	
+
 	if (end_args == NULL)
 		end_args = (uintptr_t) pg_round_down(args) + 1;
 	
