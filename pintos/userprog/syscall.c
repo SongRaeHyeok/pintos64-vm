@@ -67,18 +67,27 @@ exit (int status) {
 	thread_exit ();
 }
 
+/* va의 페이지를 지금 쓸 수 있게 만든다 (이미 매핑 / lazy 로드 / 스택 증가) */
+static bool
+page_ready (void *va) {
+	if (pml4_get_page (thread_current ()->pml4, va) != NULL)
+		return true;
+#ifdef VM
+	return vm_claim_page (va)
+	       || vm_try_stack_growth (va, thread_current ()->user_rsp);
+#else
+	return false;
+#endif
+}
+
+/* [args, end_args) 범위의 모든 페이지 검사. end_args가 NULL이면 args 한 바이트만 */
 static void
-range_chk (void *args, void *end_args){
-	if ((args == NULL) || !is_user_vaddr(args) || !pml4_get_page(thread_current()->pml4, args)){
-		exit(-1);
-	}
-	if (end_args != NULL){
-		for (uintptr_t i = (uintptr_t) pg_round_down(args); i <= end_args - 1; i += PGSIZE){
-			if (!is_user_vaddr(i) || !pml4_get_page(thread_current()->pml4, (const void *) i)){
-				exit(-1);
-			}
-		}
-	}
+range_chk (void *args, void *end_args) {
+	if (end_args == NULL)
+		end_args = args + 1;
+	for (void *p = args; p < end_args; p = pg_round_down (p) + PGSIZE)
+		if (p == NULL || !is_user_vaddr (p) || !page_ready (p))
+			exit (-1);
 }
 
 static pid_t
@@ -278,6 +287,9 @@ close (int fd) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
+	#ifdef VM
+	thread_current ()->user_rsp = f->rsp;
+	#endif
 	int syscall_num = f->R.rax;
 
 	switch (syscall_num) {
