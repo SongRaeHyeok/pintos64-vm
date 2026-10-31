@@ -198,8 +198,10 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 
 	if (page == NULL)   /* SPT에 없음 → 스택 증가 후보 */
 		return vm_try_stack_growth (addr, user ? f->rsp : curr->user_rsp);
+		
 	if (write && !page->writable)
 		return false;
+
 	return vm_do_claim_page (page);
 }
 
