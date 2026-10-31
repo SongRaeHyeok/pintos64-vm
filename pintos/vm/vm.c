@@ -190,6 +190,7 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
+			
 	if (addr == NULL || is_kernel_vaddr (addr) || !not_present)
 		return false;
 

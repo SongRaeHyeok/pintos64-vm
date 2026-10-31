@@ -287,9 +287,9 @@ close (int fd) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
-	#ifdef VM
+#ifdef VM
 	thread_current ()->user_rsp = f->rsp;
-	#endif
+#endif
 	int syscall_num = f->R.rax;
 
 	switch (syscall_num) {
