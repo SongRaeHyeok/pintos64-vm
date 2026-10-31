@@ -97,7 +97,7 @@ kill (struct intr_frame *f) {
 			// intr_dump_frame (f);
 			// PANIC ("Kernel bug - unexpected interrupt in kernel");
 			thread_exit ();
-
+			
 		default:
 			/* Some other code segment?  Shouldn't happen.  Panic the
 			   kernel. */

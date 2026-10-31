@@ -158,6 +158,7 @@ vm_get_frame (void) {
   return frame;
 }
 
+
 #define STACK_LIMIT (USER_STACK - (1 << 20))   /* 스택 최대 1MB */
 
 /* addr이 스택을 키우려는 접근으로 보이는가 */

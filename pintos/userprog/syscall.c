@@ -53,8 +53,6 @@ syscall_init (void) {
 	lock_init(&file_lock);
 }
 
-
-
 static void
 halt (void) {
 	power_off ();
@@ -166,7 +164,6 @@ open (const char *file) {
 	lock_release(&file_lock);
 
 	return -1;
-
 }
 
 static int
@@ -337,4 +334,3 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 	}
 }
-
