@@ -158,12 +158,27 @@ vm_get_frame (void) {
   return frame;
 }
 
-/* Growing the stack. */
-static void
+#define STACK_LIMIT (USER_STACK - (1 << 20))   /* 스택 최대 1MB */
+
+/* addr이 스택을 키우려는 접근으로 보이는가 */
+static bool
+is_stack_access (void *addr, uintptr_t rsp) {
+	uintptr_t a = (uintptr_t) addr;
+	return STACK_LIMIT <= a && a < USER_STACK   /* 스택 구역 안 */
+	       && a >= rsp - 8;                     /* rsp 근처 (PUSH는 rsp-8) */
+}
+
+/* addr이 속한 페이지를 스택 페이지로 만들어 바로 연결 */
+static bool
 vm_stack_growth (void *addr) {
-	addr = pg_round_down(addr);
-	vm_alloc_page (VM_ANON | VM_MARKER_0, addr, true);
-	// vm_claim_page (addr);
+	void *va = pg_round_down (addr);
+	return vm_alloc_page (VM_ANON | VM_MARKER_0, va, true) && vm_claim_page (va);
+}
+
+/* 스택 접근이면 키운다 (page fault와 시스템 콜 검사가 같이 사용) */
+bool
+vm_try_stack_growth (void *addr, uintptr_t rsp) {
+	return is_stack_access (addr, rsp) && vm_stack_growth (addr);
 }
 
 /* Handle the fault on write_protected page */
@@ -175,29 +190,18 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
-	struct supplemental_page_table *spt = &thread_current ()->spt;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
-	if (addr == NULL || is_kernel_vaddr (addr))
+			
+	if (addr == NULL || is_kernel_vaddr (addr) || !not_present)
 		return false;
-	
-	/* spt 에서 조회 : fault 구분 */
-	struct page *page = spt_find_page (spt, addr);
-	
-	/* user stack growth case */
-	uintptr_t rsp = user ? f->rsp : thread_current()->user_rsp;
-	
-	if (!page) { 
-		if (addr < rsp - 8 ) return false;
-		if (addr <= (USER_STACK - (1 << 20)) || addr >= USER_STACK) return false;
-		
-		vm_stack_growth (addr);
-		page = spt_find_page (spt, addr);
-	}
 
-	if (!page || !not_present || (!page->writable && write)) {
+	struct thread *curr = thread_current ();
+	struct page *page = spt_find_page (&curr->spt, addr);
+
+	if (page == NULL)   /* SPT에 없음 → 스택 증가 후보 */
+		return vm_try_stack_growth (addr, user ? f->rsp : curr->user_rsp);
+		
+	if (write && !page->writable)
 		return false;
-	} 	
 
 	return vm_do_claim_page (page);
 }
