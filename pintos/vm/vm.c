@@ -174,7 +174,6 @@ static void
 vm_stack_growth (void *addr) {
 	addr = pg_round_down (addr);
 	vm_alloc_page (VM_ANON | VM_MARKER_0, addr, true);
-	vm_claim_page (addr);
 }
 
 /* Handle the fault on write_protected page */
@@ -196,11 +195,14 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 	if (is_normal_fault (page))
 		return vm_do_claim_page (page);
 
-	if (is_stack_growth (addr, f, user)) 
+	if (is_stack_growth (addr, f, user)) {
 		vm_stack_growth (addr);
+		if ((page = spt_find_page (spt, addr)) == NULL)
+			return false;
+	}
 	else 
 		return false;
-	return true;
+	return vm_do_claim_page (page);
 }
 
 /* 올바른 접근이면 true, 아니면 false */

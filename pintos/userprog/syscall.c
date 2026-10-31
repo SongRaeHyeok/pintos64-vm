@@ -53,8 +53,6 @@ syscall_init (void) {
 	lock_init(&file_lock);
 }
 
-
-
 static void
 halt (void) {
 	power_off ();
