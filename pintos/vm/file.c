@@ -52,16 +52,14 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
-	/* 연결된 파일을 닫아서 file_backed 페이지 정리 */
-
-	/* 내용이 dirty 하면 파일에 다시 쓰기 */
-		/* 프로세스가 쓴 page 파일에 다시 기록 (쓰지 않은건 기록되면 안된다)*/
-	if (pml4_is_dirty (t->pml4, page->va))
-		file_write_at (page->file.file, addr, page->file.read_bytes, page->file.ofs);
+	struct thread *t = thread_current ();
 	
-
-	/* struct page 자체는 함수에서 해제하지 않음. */
-
+	/* 내용이 dirty 하면 파일에 다시 쓰기 */
+	if (pml4_is_dirty (t->pml4, page->va))
+		file_write_at (page->file.file, page->va, page->file.read_bytes, page->file.ofs);
+	
+	/* 연결된 파일을 닫아서 file_backed 페이지 정리 */
+	file_close (page->file.file);
 }
 
 bool
