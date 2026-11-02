@@ -282,6 +282,21 @@ close (int fd) {
 	t->file_p[fd] = NULL;
 }
 
+static void *
+mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
+	if (fd >= FD_MAX || fd < 3 || offset < 0 || (offset % PGSIZE != 0) || length <= 0) return NULL;
+	struct file *file = thread_current ()->file_p[fd];
+	if (file == NULL) return NULL;
+
+	return do_mmap (addr, length, writable, file, offset);
+}
+
+static uint16_t
+munmap (void *addr) {
+
+}
+
+
 
 
 /* The main system call interface */
@@ -335,6 +350,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CLOSE:
 			close (f->R.rdi);
 			break;
+		case SYS_MMAP:
+			f->R.rax = (uint64_t) mmap (f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+			break;
+		case SYS_MUNMAP:
+			break;		
 	}
 }
 
