@@ -291,29 +291,9 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	return do_mmap (addr, length, writable, file, offset);
 }
 
-static uint16_t
+static void
 munmap (void *addr) {
-	
-	struct thread *t = thread_current ();
-	struct page *page = spt_find_page (&t->spt, addr);
-	if (page == NULL) return;
-
-	struct file_info *aux = page->uninit.aux;
-
-	int page_cnt = page->operations->type == VM_UNINIT ? aux->page_cnt : page->file.page_cnt;
-
-	while (page_cnt > 0) {
-		/* 프로세스가 쓴 page 파일에 다시 기록 (쓰지 않은건 기록되면 안된다)*/
-		if (pml4_is_dirty (t->pml4, addr))
-			file_write_at (page->file.file, addr, page->file.read_bytes, page->file.ofs);
-		
-		/* 가상 페이지 목록에서 제거 */
-		spt_remove_page (&t->spt, page);
-
-		addr = addr + PGSIZE;
-		page = spt_find_page (&t->spt, addr);
-		page_cnt --;
-	}
+	do_munmap (addr);
 }
 
 
