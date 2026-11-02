@@ -44,6 +44,7 @@ struct file_info {
 	uint32_t read_bytes;
 	uint32_t zero_bytes;
 	bool is_aux_copied;
+	int page_cnt;
 };
 
 #define VM_TYPE(type) ((type) & 7) 
