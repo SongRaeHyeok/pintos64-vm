@@ -279,6 +279,38 @@ close (int fd) {
 	t->file_p[fd] = NULL;
 }
 
+static bool
+mmap_range_chk (void *args, void *end_args) {
+
+	for (void *p = args; p < end_args; p += PGSIZE) {
+		if (spt_find_page (&thread_current ()->spt, p))
+			return false;
+	}
+	return true;
+}
+
+static void*
+mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
+	if (fd >= 512 || fd < 3 || offset < 0 || (offset % PGSIZE != 0) || length <= 0)
+		return NULL;
+
+	if (addr == NULL || (uint64_t)addr % PGSIZE != 0 || !is_user_vaddr (addr))
+		return NULL;
+
+	if (KERN_BASE - (uint64_t)addr < length || !mmap_range_chk (addr, addr + length))
+		return NULL;
+
+	struct file *file = thread_current ()->file_p[fd];
+	if (file == NULL)
+		return NULL;
+
+
+	lock_acquire (&file_lock);
+	void *r = do_mmap (addr, length, writable, file, offset);
+	lock_release (&file_lock);
+
+	return r;
+}
 
 
 /* The main system call interface */
@@ -331,6 +363,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_CLOSE:
 			close (f->R.rdi);
+			break;
+		case SYS_MMAP:
+			f->R.rax = (uint64_t) mmap (f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+			break;
+		case SYS_MUNMAP:
 			break;
 	}
 }

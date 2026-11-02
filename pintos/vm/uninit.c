@@ -64,6 +64,10 @@ uninit_initialize (struct page *page, void *kva) {
 static void
 uninit_destroy (struct page *page) {
 	struct uninit_page *uninit UNUSED = &page->uninit;
-	
+	struct file_info *file_info = uninit->aux;
+
+	if (file_info != NULL && file_info->is_aux_copied) 
+		file_close (file_info->file);
+
 	free (page->uninit.aux);
 }
