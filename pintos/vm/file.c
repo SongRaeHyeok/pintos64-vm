@@ -29,6 +29,10 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &file_ops;
 
 	struct file_page *file_page = &page->file;
+	
+	file_page->file = page->file.file;
+
+
 	return true;
 }
 
@@ -50,12 +54,22 @@ file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 }
 
+bool
+mmap_lazy_load_segment (struct page *page, void *aux_p) {
+	/* file_page 에 저장 */
+	struct file_info *aux = (struct file_info *) aux_p;
+	page->file = (struct file_page) { aux->file, aux->ofs, aux->read_bytes, aux->zero_bytes, aux->page_cnt };
+
+	return lazy_load_segment (page, aux);
+
+}
+
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable, struct file *file, off_t ofs) {
 	size_t read_bytes = length > file_length(file) - ofs ? file_length(file) - ofs : length;
 	size_t zero_bytes = (ROUND_UP (length, PGSIZE) - read_bytes);
-	int page_cnt = 0;
+	int page_cnt = length % PGSIZE > 0 ? length / PGSIZE + 1 : length / PGSIZE;
 	void *start_addr = addr;
 
 	while (read_bytes > 0 || zero_bytes > 0) {
@@ -74,7 +88,7 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t ofs) 
         *aux = (struct file_info) { new_file, ofs, page_read_bytes, page_zero_bytes, true, page_cnt };
 
         if (!vm_alloc_page_with_initializer (VM_FILE, addr, writable,
-                    lazy_load_segment, aux)) {
+                    mmap_lazy_load_segment, aux)) {
             free (aux);
 			file_close (new_file);
             return NULL;
@@ -84,7 +98,6 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t ofs) 
         zero_bytes -= page_zero_bytes;
         addr += PGSIZE;
         ofs += PGSIZE;
-		page_cnt ++;
     }
 
 	return start_addr;
