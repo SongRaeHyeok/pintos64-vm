@@ -28,7 +28,8 @@ vm_init (void) {
 	/* TODO: Your code goes here. */
 
 	/* frame table initialize */
-
+	frame_table = malloc (sizeof (struct frame_table));
+	list_init (&frame_table->list);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
