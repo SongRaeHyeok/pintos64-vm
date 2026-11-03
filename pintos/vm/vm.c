@@ -27,6 +27,7 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	frame_table = malloc (sizeof *frame_table);
 	list_init (&frame_table->list);
 }
 
@@ -150,7 +151,7 @@ vm_evict_frame (void) {
 	struct page *page = victim->page;
 
 	list_remove (&victim->elem);
-	pml4_clear_page (victim->pml4, victim->kva);
+	pml4_clear_page (victim->page->pml4, victim->page->va);
 
 	switch (VM_TYPE(page->operations->type)) {
 		case (VM_ANON):

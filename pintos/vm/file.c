@@ -41,7 +41,7 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
-	
+
 	bool held = lock_held_by_current_thread (&file_lock);
 	if (!held) lock_acquire (&file_lock);
 	off_t read = file_read_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
@@ -50,6 +50,10 @@ file_backed_swap_in (struct page *page, void *kva) {
 	if (read != file_page->read_bytes)
 		return false;
 	
+	memset ((char *)(page->frame->kva) + read, 0, PGSIZE - read);
+
+	list_push_back (frame_table, &page->frame->elem);
+
 	return true;
 }
 
@@ -58,7 +62,7 @@ static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 
-	if (pml4_is_dirty (thread_current ()->pml4, page->va)) {
+	if (pml4_is_dirty (page->pml4, page->va)) {
 		bool held = lock_held_by_current_thread (&file_lock);
 		if (!held) lock_acquire (&file_lock);
 		off_t written = file_write_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
@@ -67,9 +71,10 @@ file_backed_swap_out (struct page *page) {
 		if (written != file_page->read_bytes)
 			return false;
 		
-			pml4_set_dirty (thread_current ()->pml4, page->va, 0);
+			pml4_set_dirty (page->pml4, page->va, 0);
 	}
-	pml4_clear_page (thread_current ()->pml4, page->va);
+	pml4_clear_page (page->pml4, page->va);
+	list_remove (&page->frame->elem);
 
 	return true;
 }
@@ -77,7 +82,6 @@ file_backed_swap_out (struct page *page) {
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	// 프레임과 매핑, 변경된 파일 내용 등을 어떻게 정리할지 고민해라.
 	struct file_page *file_page = &page->file;
 
 	if (pml4_is_dirty (thread_current ()->pml4, page->va)) {

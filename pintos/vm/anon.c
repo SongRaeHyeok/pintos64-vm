@@ -4,6 +4,7 @@
 #include "devices/disk.h"
 #include "threads/malloc.h"
 #include "lib/kernel/bitmap.h"
+#include "threads/mmu.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -25,7 +26,12 @@ vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
 	if (!(swap_disk = disk_get (1, 1)))
 		PANIC ("Set up swap disk failed");
-	if (!(swap_table->bitmap = bitmap_create (disk_size (swap_disk))))
+
+	swap_table = malloc (sizeof *swap_table);
+	if (swap_table == NULL)
+		PANIC ("swap_table malloc failed");
+
+	if (!(swap_table->bitmap = bitmap_create (disk_size (swap_disk) / 8)))
 		PANIC ("Bitmap create failed");
 }
 
@@ -44,7 +50,12 @@ static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
 	size_t sector_idx = anon_page->swap_slot * 8;
-	disk_read (swap_disk, sector_idx, page->frame->kva);
+	int sectors_per_page = 8;
+	for (int i = 0; i < sectors_per_page; i++)
+		disk_read (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
+
+	list_push_back (frame_table, &page->frame->elem);
+	bitmap_set (swap_table, anon_page->swap_slot, true);
 
 	return true;
 }
@@ -57,7 +68,13 @@ anon_swap_out (struct page *page) {
 		return false;
 		
 	size_t sector_idx = anon_page->swap_slot * 8;
-	disk_write (swap_disk, sector_idx, page->frame->kva);
+	int sectors_per_page = 8;
+	for (int i = 0; i < sectors_per_page; i++)
+ 		disk_write (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
+
+	list_remove (&page->frame->elem);
+	bitmap_set (swap_table, anon_page->swap_slot, false);
+	pml4_clear_page (page->pml4, page->va);
 	
 	return true;
 }
@@ -66,6 +83,11 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+
+	if (page->frame != NULL)
+		list_remove (&page->frame->elem);
+	else
+		bitmap_set (swap_table, anon_page->swap_slot, true);
 
 	// pml4_clear_page (thread_current ()->pml4, page->va);
 	if (page->frame != NULL)
