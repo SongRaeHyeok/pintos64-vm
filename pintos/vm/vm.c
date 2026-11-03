@@ -138,10 +138,12 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
+	/* 희생자 페이지 선택 */
+	struct frame *victim = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-
-	return NULL;
+	/* frame 을 참조하는 page table 에서 참조 제거 */
+	swap_out (victim->page);
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -150,21 +152,25 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-  struct frame *frame = malloc (sizeof *frame);
-  if (frame == NULL)
-    PANIC("malloc failed");
+	struct frame *frame = malloc (sizeof *frame);
+	if (frame == NULL)
+		PANIC("malloc failed");
 
-  frame->page = NULL;
-  frame->kva = palloc_get_page (PAL_USER);
+	frame->page = NULL;
+	frame->kva = palloc_get_page (PAL_USER);
+	if (frame->kva == NULL) PANIC ("palloc failed");
 
-  if (frame->kva == NULL) {
-    PANIC ("TODO");
-  }
-  /* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
+	/* frame 할당, 멤버 초기화*/
+	list_push_back (&frame_table->list, &frame->elem);
+	
+	if (frame->kva == NULL) {
+		struct page *page = vm_evict_frame ();
+	}
+	/* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
 
-  ASSERT (frame != NULL);
-  ASSERT (frame->page == NULL);
-  return frame;
+	ASSERT (frame != NULL);
+	ASSERT (frame->page == NULL);
+	return frame;
 }
 
 #define STACK_LIMIT (USER_STACK - (1 << 20))   /* 스택 최대 1MB */
