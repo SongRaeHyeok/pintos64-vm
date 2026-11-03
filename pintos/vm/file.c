@@ -5,6 +5,7 @@
 #include "filesys/file.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
+#include "threads/mmu.h"
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
@@ -53,7 +54,23 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	// 프레임과 매핑, 변경된 파일 내용 등을 어떻게 정리할지 고민해라.
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page = &page->file;
+
+	if (pml4_is_dirty (thread_current ()->pml4, page->va)) {
+		bool held = lock_held_by_current_thread (&file_lock);
+		if (!held) lock_acquire (&file_lock);
+		file_write_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+		if (!held) lock_release (&file_lock);
+		pml4_set_dirty (thread_current ()->pml4, page->va, 0);
+	}
+
+	pml4_clear_page (thread_current ()->pml4, page->va);
+
+	if (page->frame != NULL) {
+		palloc_free_page (page->frame->kva);
+		free (page->frame);
+	}
+	file_close (page->file.file);
 }
 
 static void
@@ -69,7 +86,7 @@ static bool
 file_initializer (struct page *page, void *aux) {
 	struct file_info *fp = aux;
 	struct file_page *file_page = &page->file;
-	
+
 	*file_page = (struct file_page) {
 		.file = fp->file,
 		.ofs = fp->ofs,
@@ -94,7 +111,7 @@ file_initializer (struct page *page, void *aux) {
 	return true;
 }
 
-static struct file_page*
+static struct file_info*
 fill_file_info (size_t length, size_t file_left, struct file *file, off_t ofs) {
 	struct file_info *file_info = malloc (sizeof (*file_info));
 	if (file_info == NULL)
@@ -103,10 +120,11 @@ fill_file_info (size_t length, size_t file_left, struct file *file, off_t ofs) {
 	uint32_t read_bytes = MIN (PGSIZE, MIN (length, file_left));
 	uint32_t zero_bytes = PGSIZE - read_bytes;
 	*file_info = (struct file_info) {
-		.file = file,
+		.file = file_reopen (file),
 		.ofs = ofs,
 		.read_bytes = read_bytes,
-		.zero_bytes = zero_bytes
+		.zero_bytes = zero_bytes,
+		.is_aux_copied = true
 	};
 
 	return file_info;
@@ -120,8 +138,7 @@ do_mmap_helper (void *addr, size_t length, int writable, struct file *file, off_
 	void *start = addr;
 	size_t page_cnt = length / PGSIZE + (bool)(length % PGSIZE);
 	size_t mapped = 0;
-	for (size_t i = 0; i < page_cnt; i++)
-	{
+	for (size_t i = 0; i < page_cnt; i++) {
 		size_t file_left = 0;
 
 		if (current_ofs < file_size)
@@ -171,12 +188,13 @@ get_page_cnt (struct page *page) {
 		page_cnt = page->file.page_cnt;
 
 	else if (type == VM_UNINIT && page->uninit.type == VM_FILE) {
-		struct file_page *file_page = page->uninit.aux;
-		page_cnt = file_page->page_cnt;
+		struct file_info *file_info = page->uninit.aux;
+		page_cnt = file_info->page_cnt;
 	}
 
 	return page_cnt;
 }
+
 /* Do the munmap */
 void
 do_munmap (void *addr) {
@@ -187,10 +205,8 @@ do_munmap (void *addr) {
 
 	size_t page_cnt = get_page_cnt (page);
 
-	for (size_t i = 0; i < page_cnt; i++)
-	{
+	for (size_t i = 0; i < page_cnt; i++) {
 		file_cleanup (spt, addr, 1);
 		addr = (char *)addr + PGSIZE;
 	}
-	
 }
