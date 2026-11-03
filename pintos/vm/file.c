@@ -9,11 +9,11 @@
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
+extern struct lock file_lock;
+
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
-
-extern struct lock file_lock;
 
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
@@ -33,8 +33,7 @@ bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &file_ops;
-
-	struct file_page *file_page = &page->file;
+	
 	return true;
 }
 
@@ -85,9 +84,10 @@ file_cleanup (struct supplemental_page_table *spt, void *addr, size_t mapped) {
 static bool
 file_initializer (struct page *page, void *aux) {
 	struct file_info *fp = aux;
+
 	struct file_page *file_page = &page->file;
 
-	*file_page = (struct file_page) {
+		*file_page = (struct file_page) {
 		.file = fp->file,
 		.ofs = fp->ofs,
 		.page_cnt = fp->page_cnt,
