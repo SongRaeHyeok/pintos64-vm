@@ -157,8 +157,13 @@ vm_evict_frame (void) {
 	/* 희생자 페이지 선택 */
 	struct frame *victim = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
+	
 	/* frame 을 참조하는 page table 에서 참조 제거 */
 	swap_out (victim->page);
+	pml4_clear_page (victim->page->pml4, victim->page->va);
+	victim->page->frame = NULL;
+	victim->page = NULL;
+
 	return victim;
 }
 
@@ -174,16 +179,16 @@ vm_get_frame (void) {
 
 	frame->page = NULL;
 	frame->kva = palloc_get_page (PAL_USER);
-	if (frame->kva == NULL) PANIC ("palloc failed");
 
-	/* frame 할당, 멤버 초기화*/
-	list_push_back (&frame_table->list, &frame->elem);
 	
 	if (frame->kva == NULL) {
-		struct page *page = vm_evict_frame ();
+		free (frame);
+		frame = vm_evict_frame ();
+	} else {
+		/* frame 할당, 멤버 초기화*/
+		list_push_back (&frame_table->list, &frame->elem);
 	}
-	/* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
-
+	
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 	return frame;
