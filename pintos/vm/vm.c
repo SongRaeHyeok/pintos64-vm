@@ -129,8 +129,24 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
+	/* TODO: The policy for eviction is up to you. */
+	
+	struct list_elem *elem = list_front (&frame_table->list);
+	struct page *page = list_entry (elem, struct frame, elem)->page;
 
+	while (true){
+		 if (page == NULL || page->pml4 == NULL || pml4_is_accessed (page->pml4, page->va)) {
+			/* accessed 비트 변경 */
+			if (page && page->pml4) pml4_set_accessed (page->pml4, page->va, 0);
+			list_remove (elem);
+			list_push_back (&frame_table->list, elem);
+
+			elem = list_front (&frame_table->list);
+			page = list_entry (elem, struct frame, elem)->page;
+		} else {
+			return page->frame;
+		}
+	}
 	return victim;
 }
 
