@@ -10,6 +10,10 @@
 #include "userprog/process.h"
 
 extern struct lock file_lock;
+
+struct frame_table *frame_table;
+struct swap_table *swap_table;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -22,6 +26,9 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+
+	/* frame table initialize */
+
 }
 
 /* Get the type of the page. This function is useful if you want to know the

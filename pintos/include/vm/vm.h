@@ -81,7 +81,19 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list_elem elem;
 };
+
+struct frame_table {
+	struct list list;
+};
+
+struct swap_table {
+	struct bitmap *bitmap;
+};
+
+extern struct frame_table *frame_table;
+extern struct swap_table *swap_table;
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.
