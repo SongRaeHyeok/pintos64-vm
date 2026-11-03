@@ -43,6 +43,7 @@ struct file_info {
 	off_t ofs;
 	uint32_t read_bytes;
 	uint32_t zero_bytes;
+	int page_cnt;
 	bool is_aux_copied;
 };
 
