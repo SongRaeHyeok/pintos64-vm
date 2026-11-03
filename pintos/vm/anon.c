@@ -3,6 +3,8 @@
 #include "vm/vm.h"
 #include "devices/disk.h"
 #include "threads/malloc.h"
+#include <bitmap.h>
+#include "threads/vaddr.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -21,8 +23,13 @@ static const struct page_operations anon_ops = {
 /* Initialize the data for anonymous pages */
 void
 vm_anon_init (void) {
-	/* TODO: Set up the swap_disk. */
-	swap_disk = NULL;
+	/* 스왑 디스크 설정 */
+	swap_disk = disk_get (1, 1);
+
+	/* 스왑 디스크와 자료구조 연결 */
+	swap_table = malloc (sizeof (struct swap_table));
+	disk_sector_t cnt = disk_size (swap_disk);
+	swap_table->bitmap = bitmap_create ( cnt / (PGSIZE / DISK_SECTOR_SIZE) );
 }
 
 /* Initialize the file mapping */
