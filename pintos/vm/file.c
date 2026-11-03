@@ -28,8 +28,17 @@ bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &file_ops;
+	
+	struct file_info *aux = page->uninit.aux;
 
 	struct file_page *file_page = &page->file;
+	*file_page = (struct file_page) {
+		.file = aux->file,
+		.ofs = aux->ofs,
+		.read_bytes = aux->read_bytes,
+		.zero_bytes = aux->zero_bytes,
+		.page_cnt = aux->page_cnt,
+	};
 }
 
 /* Swap in the page by read contents from the file. */
@@ -62,14 +71,12 @@ file_backed_destroy (struct page *page) {
 		palloc_free_page (page->frame->kva);
 		page->frame->kva = NULL;
 		free (page->frame);
+		/* frame table 생성시 frame table 관리도 해줘야 함 */
 	}
 }
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
 	bool success = true;
 	struct file_info *file_info = (struct file_info *)aux;
 
@@ -89,46 +96,46 @@ lazy_load_segment (struct page *page, void *aux) {
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable,
-		struct file *file, off_t offset) {
+	 struct file *file, off_t offset) {
+	size_t size = length > file_length (file) - offset ? file_length (file) - offset : length;
+	off_t page_ofs = 0;
+	int cnt = (length + PGSIZE - 1) / PGSIZE;
 
-	length = file_length (file) - offset < length ? file_length (file) - offset : length; 
-	int count = (length + PGSIZE - 1) / PGSIZE;
-
-	while (length) {
-		size_t page_read_bytes = length < PGSIZE ? length : PGSIZE;
-		size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
+	while (size > 0) {
 		struct file_info *aux = malloc (sizeof *aux);
 		if (aux == NULL)
-            return false;
-
- 		*aux = (struct file_info) { file_reopen (file), offset, page_read_bytes, page_zero_bytes, count};
+			return NULL;
 		
-        if (!vm_alloc_page_with_initializer (VM_FILE, addr, writable,
-                    lazy_load_segment, aux)) {
-            free (aux); /*TODO : 누수 처리*/
-            return false;
-        }
+		uint32_t page_read_bytes = size >= PGSIZE ? PGSIZE : size % PGSIZE;
+      
+		*aux = (struct file_info) { file_reopen (file), offset, page_read_bytes, PGSIZE - page_read_bytes, cnt};
 
-        addr += PGSIZE;
-        offset += PGSIZE;
-		length -= page_read_bytes;
-		count = 0;
-    }
+		vm_alloc_page_with_initializer (VM_FILE, addr + page_ofs, writable, lazy_load_segment, aux);
+		if (!spt_find_page (&thread_current ()->spt, addr + page_ofs)) {
+			free (aux);
+			return NULL;
+		}
+
+		size -= page_read_bytes;
+		offset += PGSIZE;
+		page_ofs += PGSIZE;
+		cnt = 0;
+	}
+	return addr;
 }
 
 /* Do the munmap */
 void
 do_munmap (void *addr) {
-	/* 가상 페이지 만들고 spt에 page 추가, 물리 메모리 할당(lazy로 fault 났는 경우), 페이지 매핑 (페이지 테이블 작성), file 읽어옴 */
 	struct page *page = spt_find_page (&thread_current ()->spt, addr);
-	int count = page->file.page_cnt;
-
-	while (count) {
-		/*edge 케이스 처리*/
+	if (page == NULL)
+		return NULL;
+		
+	int cnt = page->file.page_cnt;
+	while (cnt) {
 		vm_dealloc_page (page);
+		
 		addr += PGSIZE;
-		count--;
+		cnt--;
 	}
-
 }
