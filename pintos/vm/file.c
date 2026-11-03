@@ -41,12 +41,37 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
+	
+	bool held = lock_held_by_current_thread (&file_lock);
+	if (!held) lock_acquire (&file_lock);
+	off_t read = file_read_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+	if (!held) lock_release (&file_lock);
+
+	if (read != file_page->read_bytes)
+		return false;
+	
+	return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+
+	if (pml4_is_dirty (thread_current ()->pml4, page->va)) {
+		bool held = lock_held_by_current_thread (&file_lock);
+		if (!held) lock_acquire (&file_lock);
+		off_t written = file_write_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+		if (!held) lock_release (&file_lock);
+
+		if (written != file_page->read_bytes)
+			return false;
+		
+			pml4_set_dirty (thread_current ()->pml4, page->va, 0);
+	}
+	pml4_clear_page (thread_current ()->pml4, page->va);
+
+	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */

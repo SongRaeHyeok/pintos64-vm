@@ -60,6 +60,7 @@ struct page {
 	const struct page_operations *operations;
 	void *va;              /* Address in terms of user space */
 	struct frame *frame;   /* Back reference for frame */
+	uint32_t *pml4;
 
 	/* Your implementation */
 	struct hash_elem elem;
@@ -81,7 +82,20 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	uint64_t *pml4;
+	struct list_elem elem;
 };
+
+struct frame_table {
+	struct list list;
+};
+
+struct swap_table {
+	struct bitmap *bitmap;
+};
+
+extern struct frame_table *frame_table;
+extern struct swap_table *swap_table;
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.

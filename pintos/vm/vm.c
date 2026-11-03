@@ -8,8 +8,13 @@
 #include "vm/uninit.h"
 #include <string.h>
 #include "userprog/process.h"
+#include "threads/mmu.h"
 
 extern struct lock file_lock;
+
+struct frame_table *frame_table;
+struct swap_table *swap_table;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -22,6 +27,7 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init (&frame_table->list);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -120,17 +126,53 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
-
-	return victim;
+	/* TODO: The policy for eviction is up to you. */
+	
+	struct list_elem *elem = list_begin (&frame_table->list);
+	while (true) {
+		victim = list_entry (elem, struct frame, elem);
+		if (pml4_is_accessed (victim->page->pml4, victim->page))
+			pml4_set_accessed (victim->page->pml4, victim->page, 0);
+		else 
+			return victim;
+		
+		elem = list_next (elem);
+		if (elem == list_end (&frame_table->list))
+			elem = list_begin (&frame_table->list);
+	}
 }
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
-	/* TODO: swap out the victim and return the evicted frame. */
+	struct frame *victim = vm_get_victim ();
+	struct page *page = victim->page;
+
+	list_remove (&victim->elem);
+	pml4_clear_page (victim->pml4, victim->kva);
+
+	switch (VM_TYPE(page->operations->type)) {
+		case (VM_ANON):
+		page->anon.swap_slot = bitmap_scan_and_flip (swap_table->bitmap, 0, 1, false);
+			if (swap_out (page)) {
+				page->frame = NULL;
+				victim->page = NULL;
+				return victim;
+			}
+			else
+				PANIC ('swap disk is full');
+			break;
+		case (VM_FILE):
+			if (swap_out (page)) {
+				page->frame = NULL;
+				victim->page = NULL;
+				return victim;
+			}
+			break;
+		default:
+			break;
+	}
 
 	return NULL;
 }
@@ -145,13 +187,14 @@ vm_get_frame (void) {
   if (frame == NULL)
     PANIC("malloc failed");
 
-  frame->page = NULL;
   frame->kva = palloc_get_page (PAL_USER);
 
   if (frame->kva == NULL) {
-    PANIC ("TODO");
+    free (frame);
+    frame = vm_evict_frame ();
   }
-  /* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
+	frame->page = NULL;
+	list_push_back (&frame_table->list, &frame->elem);
 
   ASSERT (frame != NULL);
   ASSERT (frame->page == NULL);
@@ -236,6 +279,8 @@ vm_do_claim_page (struct page *page) {
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
+
+	page->pml4 = thread_current ()->pml4;
 
 	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
 		frame->page = NULL;
