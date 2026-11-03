@@ -346,6 +346,8 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 				.read_bytes = old_fp->read_bytes,
 				.zero_bytes = old_fp->zero_bytes
 			};
+
+			spt_find_page (dst, page->va)->file = *fp;
 		}
 	}
 	
