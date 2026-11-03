@@ -114,7 +114,6 @@ void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	hash_delete (&spt->hash, &page->elem);
 	vm_dealloc_page (page);
-	return true;
 }
 
 /* Get the struct frame, that will be evicted. */
@@ -289,7 +288,8 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 	/* spt 테이블 순회 */
 	while (hash_next(&i)) {
 		struct page *page = hash_entry (hash_cur (&i), struct page, elem);
-		
+
+		struct file_page *fp = NULL;
 		struct file_info *aux = NULL;
 		struct file *file = NULL;
 
@@ -331,10 +331,22 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
 		}
 
-		/* file 일 때 처리 */
-		if (vm_type == VM_FILE) {
-			PANIC ("TODO");
-		}
+		// /* file 일 때 처리 */
+		// if (vm_type == VM_FILE) {
+		// 	fp = malloc (sizeof *fp);
+		// 	if (fp == NULL) return false;
+
+		// 	struct file_page *old_fp = &page->file;
+
+		// 	*fp = (struct file_page) {
+		// 		.file = file_reopen (page->file.file),
+		// 		.ofs = old_fp->ofs,
+		// 		.page_cnt = old_fp->page_cnt,
+		// 		.read_bytes = old_fp->read_bytes,
+		// 		.zero_bytes = old_fp->zero_bytes
+		// 	};
+			// spt_find_page (dst, page->va)->file = *fp;
+		// }
 	}
 	
 	return true;

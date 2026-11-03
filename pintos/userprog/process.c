@@ -878,8 +878,16 @@ lazy_load_segment (struct page *page, void *aux) {
 		success = false;
 	}
 	memset ((char *)(page->frame->kva) + file_info->read_bytes, 0, file_info->zero_bytes);
-	free (file_info);
+
+	if (file_info->is_aux_copied) {
+		held = lock_held_by_current_thread (&file_lock);
+		if (!held) lock_acquire (&file_lock);
+		file_close (file_info->file);
+		if (!held) lock_release (&file_lock);
+	}
 	
+	free (file_info);
+
 	return success;
 }
 

@@ -2,6 +2,7 @@
 
 #include "vm/vm.h"
 #include "devices/disk.h"
+#include "threads/malloc.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -51,7 +52,7 @@ static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 
-	pml4_clear_page (thread_current ()->pml4, page->va);
+	// pml4_clear_page (thread_current ()->pml4, page->va);
 	if (page->frame != NULL)
 		free (page->frame);
 	return;

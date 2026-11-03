@@ -12,6 +12,8 @@
 #include "vm/uninit.h"
 #include "userprog/process.h"
 
+extern struct lock file_lock;
+
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
 
@@ -64,6 +66,14 @@ uninit_initialize (struct page *page, void *kva) {
 static void
 uninit_destroy (struct page *page) {
 	struct uninit_page *uninit UNUSED = &page->uninit;
-	
+	struct file_info *file_info = uninit->aux;
+
+	if (file_info != NULL && file_info->is_aux_copied) {
+		bool held = lock_held_by_current_thread (&file_lock);
+		if (!held) lock_acquire (&file_lock);
+		file_close (file_info->file);
+		if (!held) lock_release (&file_lock);
+	}
+
 	free (page->uninit.aux);
 }

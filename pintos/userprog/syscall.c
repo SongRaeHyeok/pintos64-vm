@@ -180,6 +180,14 @@ filesize (int fd) {
 	return length;
 }
 
+static void
+writable_chk (void *args, void *end_args) {
+	for (void *p = args; p < end_args; p = pg_round_down (p) + PGSIZE) {
+		if (!(spt_find_page (&thread_current ()->spt, p)->writable))
+			exit (-1);
+	}
+}
+
 static int
 read (int fd, void *buffer, unsigned size) {
 	struct thread *curr = thread_current();
@@ -188,8 +196,8 @@ read (int fd, void *buffer, unsigned size) {
 	if (size == 0) {
 		return 0;
 	}
-	range_chk(buffer, buffer + size);
-
+	range_chk (buffer, buffer + size);
+	writable_chk (buffer, buffer + size);
 	//# fd0 키보드에서 읽기
 	if (fd == 0) {
 		for (unsigned i = 0; i < size; i++) {
@@ -302,7 +310,7 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	struct file *file = thread_current ()->file_p[fd];
 	if (file == NULL)
 		return NULL;
-		
+
 	lock_acquire (&file_lock);
 	void *r = do_mmap (addr, length, writable, file, offset);
 	lock_release (&file_lock);

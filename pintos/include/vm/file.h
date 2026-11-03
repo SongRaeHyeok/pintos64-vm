@@ -11,7 +11,7 @@ struct file_page {
 	off_t ofs;
 	uint32_t read_bytes;
 	uint32_t zero_bytes;
-	int page_cnt;
+	size_t page_cnt;
 };
 
 void vm_file_init (void);

@@ -83,8 +83,8 @@ kill (struct intr_frame *f) {
 		case SEL_UCSEG:
 			/* User's code segment, so it's a user exception, as we
 			   expected.  Kill the user process.  */
-			printf ("%s: dying due to interrupt %#04llx (%s).\n",
-					thread_name (), f->vec_no, intr_name (f->vec_no));
+			// printf ("%s: dying due to interrupt %#04llx (%s).\n",
+			// 		thread_name (), f->vec_no, intr_name (f->vec_no));
 			// 종료 상태는 init_thread 의 기본값 -1 에 의존
 			// intr_dump_frame (f);
 			thread_exit ();
@@ -101,8 +101,8 @@ kill (struct intr_frame *f) {
 		default:
 			/* Some other code segment?  Shouldn't happen.  Panic the
 			   kernel. */
-			printf ("Interrupt %#04llx (%s) in unknown segment %04x\n",
-					f->vec_no, intr_name (f->vec_no), f->cs);
+			// printf ("Interrupt %#04llx (%s) in unknown segment %04x\n",
+			// 		f->vec_no, intr_name (f->vec_no), f->cs);
 			thread_exit ();
 	}
 }
