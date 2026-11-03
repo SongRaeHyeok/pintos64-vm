@@ -2,6 +2,7 @@
 
 #include "vm/vm.h"
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
 
 extern struct lock file_lock;
 
@@ -56,15 +57,17 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
-	
-	if (pml4_is_dirty (thread_current ()->pml4, page->va)) {
-		struct file_page file_page = page->file;
-		file_write_at (file_page.file, page->frame->kva, file_page.read_bytes, file_page.ofs);
+	if (pml4_is_dirty (thread_current ()->pml4, page->va)){
+		/* 디스크에 write back */
+		file_write_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs); 
 	}
+
 	pml4_clear_page (thread_current ()->pml4, page->va);
-	hash_delete (&thread_current ()->spt.hash, &page->elem);
+	hash_delete (&thread_current ()->spt.hash, &page->elem); 
+
 	file_close (page->file.file);
-	if (page->frame != NULL) {
+
+	if(!page->frame) {
 		palloc_free_page (page->frame->kva);
 		page->frame->kva = NULL;
 		free (page->frame);
@@ -73,7 +76,7 @@ file_backed_destroy (struct page *page) {
 }
 
 static bool
-lazy_mmap_segment (struct page *page, void *aux) {
+lazy_load_segment (struct page *page, void *aux) {
 	bool success = true;
 	struct file_info *file_info = (struct file_info *)aux;
 
@@ -87,8 +90,6 @@ lazy_mmap_segment (struct page *page, void *aux) {
 	}
 	memset ((char *)(page->frame->kva) + file_info->read_bytes, 0, file_info->zero_bytes);
 
-	// free (aux->file);
-	// free (aux);
 	return success;
 }
 
@@ -107,15 +108,9 @@ do_mmap (void *addr, size_t length, int writable,
 		
 		uint32_t page_read_bytes = size >= PGSIZE ? PGSIZE : size % PGSIZE;
       
-		*aux = (struct file_info) {
-			.file = file_reopen (file),
-			.ofs = offset,
-			.read_bytes = page_read_bytes,
-			.zero_bytes = PGSIZE - page_read_bytes,
-			.page_cnt = cnt,
-		};
+		*aux = (struct file_info) { file_reopen (file), offset, page_read_bytes, PGSIZE - page_read_bytes, cnt};
 
-		vm_alloc_page_with_initializer (VM_FILE, addr + page_ofs, writable, lazy_mmap_segment, aux);
+		vm_alloc_page_with_initializer (VM_FILE, addr + page_ofs, writable, lazy_load_segment, aux);
 		if (!spt_find_page (&thread_current ()->spt, addr + page_ofs)) {
 			free (aux);
 			return NULL;

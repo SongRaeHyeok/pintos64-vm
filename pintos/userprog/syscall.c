@@ -290,7 +290,6 @@ mmap_range_chk (void *args, void *end_args) {
 
 static void *
 mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
-	/* mmap에서는 addr도 페이지 정렬되어야 하지 않나? */
 	if (fd >= 512 || fd < 2 || offset <0 || (offset % PGSIZE != 0) || length <= 0)
 		return NULL;
 
