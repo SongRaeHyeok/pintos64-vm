@@ -443,10 +443,10 @@ process_cleanup (void) {
 
 	if (curr->file_run != NULL) {
 			// 실행파일 정리
-		bool held = lock_held_by_current_thread(&file_lock);
-		if (!held) lock_acquire(&file_lock);
+		bool held = lock_held_by_current_thread (&file_lock);
+		if (!held) lock_acquire (&file_lock);
 		file_close(curr->file_run);
-		if (!held) lock_release(&file_lock);
+		if (!held) lock_release (&file_lock);
 		curr->file_run = NULL;
 	}
 

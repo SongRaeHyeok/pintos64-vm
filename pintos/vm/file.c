@@ -2,8 +2,11 @@
 
 #include "vm/vm.h"
 #include "threads/vaddr.h"
+#include "threads/mmu.h"
 #include "userprog/process.h"
 #include <round.h>
+
+extern struct lock file_lock;
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -27,11 +30,11 @@ bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &file_ops;
+	
+	struct file_info *aux = page->uninit.aux;
 
 	struct file_page *file_page = &page->file;
-	
-	file_page->file = page->file.file;
-
+	*file_page = (struct file_page) { aux->file, aux->ofs, aux->read_bytes, aux->zero_bytes, aux->page_cnt };
 
 	return true;
 }
@@ -52,24 +55,27 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
-	struct thread *t = thread_current ();
-	
-	/* 내용이 dirty 하면 파일에 다시 쓰기 */
-	if (pml4_is_dirty (t->pml4, page->va))
-		file_write_at (page->file.file, page->va, page->file.read_bytes, page->file.ofs);
-	
-	/* 연결된 파일을 닫아서 file_backed 페이지 정리 */
+	if (pml4_is_dirty (thread_current ()->pml4, page->va)){
+		/* 디스크에 write back */
+		file_write_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs); 
+	}
+
+	pml4_clear_page (thread_current ()->pml4, page->va);
+	hash_delete (&thread_current ()->spt.hash, &page->elem); 
+
 	file_close (page->file.file);
+
+	if(!page->frame) {
+		palloc_free_page (page->frame->kva);
+		page->frame->kva = NULL;
+		free (page->frame);
+		/* frame table 생성시 frame table 관리도 해줘야 함 */
+	}
 }
 
 bool
-mmap_lazy_load_segment (struct page *page, void *aux_p) {
-	/* file_page 에 저장 */
-	struct file_info *aux = (struct file_info *) aux_p;
-	page->file = (struct file_page) { aux->file, aux->ofs, aux->read_bytes, aux->zero_bytes, aux->page_cnt };
-
+mmap_lazy_load_segment (struct page *page, void *aux) {
 	return lazy_load_segment (page, aux);
-
 }
 
 /* Do the mmap */

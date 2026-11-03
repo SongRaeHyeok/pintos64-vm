@@ -53,8 +53,6 @@ syscall_init (void) {
 	lock_init(&file_lock);
 }
 
-
-
 static void
 halt (void) {
 	power_off ();
@@ -166,7 +164,6 @@ open (const char *file) {
 	lock_release(&file_lock);
 
 	return -1;
-
 }
 
 static int
@@ -282,18 +279,8 @@ close (int fd) {
 	t->file_p[fd] = NULL;
 }
 
-// static void *
-// mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
-// 	if (fd >= FD_MAX || fd < 3 || offset < 0 || (offset % PGSIZE != 0) || length <= 0) return NULL;
-// 	struct file *file = thread_current ()->file_p[fd];
-// 	if (file == NULL) return NULL;
-
-// 	return do_mmap (addr, length, writable, file, offset);
-// }
-
 static bool
 mmap_range_chk (void *args, void *end_args) {
-
 	for (void *p = args; p < end_args; p += PGSIZE) {
 		if (spt_find_page (&thread_current ()->spt, p))
 			return false;
@@ -301,22 +288,21 @@ mmap_range_chk (void *args, void *end_args) {
 	return true;
 }
 
-static void*
+static void *
 mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
-	if (fd >= FD_MAX  || fd < 3 || offset < 0 || (offset % PGSIZE != 0) || length <= 0)
+	if (fd >= 512 || fd < 2 || offset <0 || (offset % PGSIZE != 0) || length <= 0)
 		return NULL;
 
-	if (addr == NULL || (uint64_t) addr % PGSIZE != 0 || !is_user_vaddr (addr))
+	if (addr == NULL || (uint64_t)addr % PGSIZE != 0 || !is_user_vaddr (addr))
 		return NULL;
 
-	if (KERN_BASE - (uint64_t) addr < length || !mmap_range_chk (addr, addr + length))
+	if (KERN_BASE - (uint64_t)addr <length || !mmap_range_chk (addr, addr + length))
 		return NULL;
 
 	struct file *file = thread_current ()->file_p[fd];
 	if (file == NULL)
 		return NULL;
-
-
+		
 	lock_acquire (&file_lock);
 	void *r = do_mmap (addr, length, writable, file, offset);
 	lock_release (&file_lock);
@@ -328,9 +314,6 @@ static void
 munmap (void *addr) {
 	do_munmap (addr);
 }
-
-
-
 
 /* The main system call interface */
 void
@@ -388,7 +371,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			break;
 		case SYS_MUNMAP:
 			munmap (f->R.rdi);
-			break;		
+			break;
 	}
 }
-
