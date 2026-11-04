@@ -58,7 +58,7 @@ static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 
-	if (pml4_is_dirty (thread_current ()->pml4, page->va)) {
+	if (pml4_is_dirty (page->pml4, page->va)) {
 		bool held = lock_held_by_current_thread (&file_lock);
 		if (!held) lock_acquire (&file_lock);
 		off_t written = file_write_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
@@ -67,9 +67,9 @@ file_backed_swap_out (struct page *page) {
 		if (written != file_page->read_bytes)
 			return false;
 		
-			pml4_set_dirty (thread_current ()->pml4, page->va, 0);
+		pml4_set_dirty (page->pml4, page->va, 0);
 	}
-	pml4_clear_page (thread_current ()->pml4, page->va);
+	pml4_clear_page (page->pml4, page->va);
 
 	return true;
 }
@@ -92,6 +92,7 @@ file_backed_destroy (struct page *page) {
 
 	if (page->frame != NULL) {
 		palloc_free_page (page->frame->kva);
+		list_remove (&page->frame->elem);
 		free (page->frame);
 	}
 	file_close (page->file.file);

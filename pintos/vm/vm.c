@@ -19,6 +19,8 @@ struct swap_table *swap_table;
  * intialize codes. */
 void
 vm_init (void) {
+	frame_table = malloc (sizeof (*frame_table));
+	swap_table = malloc (sizeof (*swap_table));
 	vm_anon_init ();
 	vm_file_init ();
 #ifdef EFILESYS  /* For project 4 */
@@ -131,8 +133,8 @@ vm_get_victim (void) {
 	struct list_elem *elem = list_begin (&frame_table->list);
 	while (true) {
 		victim = list_entry (elem, struct frame, elem);
-		if (pml4_is_accessed (victim->page->pml4, victim->page))
-			pml4_set_accessed (victim->page->pml4, victim->page, 0);
+		if (pml4_is_accessed (victim->page->pml4, victim->page->va))
+			pml4_set_accessed (victim->page->pml4, victim->page->va, 0);
 		else 
 			return victim;
 		
@@ -150,7 +152,7 @@ vm_evict_frame (void) {
 	struct page *page = victim->page;
 
 	list_remove (&victim->elem);
-	pml4_clear_page (victim->pml4, victim->kva);
+	pml4_clear_page (page->pml4, page->va);
 
 	switch (VM_TYPE(page->operations->type)) {
 		case (VM_ANON):
@@ -289,6 +291,7 @@ vm_do_claim_page (struct page *page) {
 			pml4_clear_page (curr->pml4, page->va);
 
 		palloc_free_page (frame->kva);
+		list_remove (&frame->elem);
 		free (frame);
 		return false;
 	}
