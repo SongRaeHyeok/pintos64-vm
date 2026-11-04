@@ -59,10 +59,15 @@ file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 
 	/* page 내용을 파일에 다시 써서 swap out */
-	/* page dirty check*/
+	if (pml4_is_dirty (page->pml4, page->va)) {
+		bool held = lock_held_by_current_thread (&file_lock);
+		if (!held) lock_acquire (&file_lock);
+		file_write_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+		if (!held) lock_release (&file_lock);
+		pml4_set_dirty (page->pml4, page->va, 0);
+	}
 
-	/* swap out 뒤 page dirty bit 끄기*/
-
+	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
