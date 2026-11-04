@@ -42,13 +42,15 @@ static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
 
-	/* 파일에서 내용 읽어 kva 의 page 로 swap in */
 	bool held = lock_held_by_current_thread (&file_lock);
 	if (!held) lock_acquire (&file_lock);
-	file_read_at (file_page->file, kva, file_page->read_bytes, file_page->ofs);
+	off_t read = file_read_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
 	if (!held) lock_release (&file_lock);
 
-	memset ((char *)(kva) + file_page->read_bytes, 0, file_page->zero_bytes);
+	if (read != file_page->read_bytes)
+		return false;
+	
+	memset ((char *)kva + read, 0, PGSIZE - read);
 
 	return true;
 }
@@ -58,14 +60,18 @@ static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
 
-	/* page 내용을 파일에 다시 써서 swap out */
 	if (pml4_is_dirty (page->pml4, page->va)) {
 		bool held = lock_held_by_current_thread (&file_lock);
 		if (!held) lock_acquire (&file_lock);
-		file_write_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
+		off_t written = file_write_at (file_page->file, page->frame->kva, file_page->read_bytes, file_page->ofs);
 		if (!held) lock_release (&file_lock);
-		pml4_set_dirty (page->pml4, page->va, 0);
+
+		if (written != file_page->read_bytes)
+			return false;
+		
+			pml4_set_dirty (page->pml4, page->va, 0);
 	}
+	pml4_clear_page (page->pml4, page->va);
 
 	return true;
 }
@@ -73,7 +79,6 @@ file_backed_swap_out (struct page *page) {
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	// 프레임과 매핑, 변경된 파일 내용 등을 어떻게 정리할지 고민해라.
 	struct file_page *file_page = &page->file;
 
 	if (pml4_is_dirty (thread_current ()->pml4, page->va)) {
@@ -87,6 +92,7 @@ file_backed_destroy (struct page *page) {
 	pml4_clear_page (thread_current ()->pml4, page->va);
 
 	if (page->frame != NULL) {
+		list_remove (&page->frame->elem);
 		palloc_free_page (page->frame->kva);
 		free (page->frame);
 	}

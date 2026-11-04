@@ -8,6 +8,8 @@
 #include "vm/uninit.h"
 #include <string.h>
 #include "userprog/process.h"
+#include "threads/mmu.h"
+#include "lib/kernel/bitmap.h"
 
 extern struct lock file_lock;
 
@@ -25,10 +27,7 @@ vm_init (void) {
 #endif
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
-	/* TODO: Your code goes here. */
-
-	/* frame table initialize */
-	frame_table = malloc (sizeof (struct frame_table));
+	frame_table = malloc (sizeof *frame_table);
 	list_init (&frame_table->list);
 }
 
@@ -154,17 +153,21 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	/* 희생자 페이지 선택 */
 	struct frame *victim = vm_get_victim ();
-	/* TODO: swap out the victim and return the evicted frame. */
-	
-	/* frame 을 참조하는 page table 에서 참조 제거 */
-	swap_out (victim->page);
-	pml4_clear_page (victim->page->pml4, victim->page->va);
-	victim->page->frame = NULL;
-	victim->page = NULL;
+	struct page *page = victim->page;
 
-	return victim;
+	list_remove (&victim->elem);
+	pml4_clear_page (victim->page->pml4, victim->page->va);
+
+	if (swap_out (page)) {
+		page->frame = NULL;
+		victim->page = NULL;
+		return victim;
+	}
+	else
+		PANIC ("swap out failed");
+
+	return NULL;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -177,21 +180,19 @@ vm_get_frame (void) {
 	if (frame == NULL)
 		PANIC("malloc failed");
 
-	frame->page = NULL;
-	frame->kva = palloc_get_page (PAL_USER);
+  frame->kva = palloc_get_page (PAL_USER);
 
-	
-	if (frame->kva == NULL) {
-		free (frame);
-		frame = vm_evict_frame ();
-	} else {
-		/* frame 할당, 멤버 초기화*/
-		list_push_back (&frame_table->list, &frame->elem);
-	}
-	
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
-	return frame;
+  if (frame->kva == NULL) {
+    free (frame);
+    frame = vm_evict_frame ();
+		if (frame == NULL)
+			PANIC ("evict failed");
+  }
+	frame->page = NULL;
+
+  ASSERT (frame != NULL);
+  ASSERT (frame->page == NULL);
+  return frame;
 }
 
 #define STACK_LIMIT (USER_STACK - (1 << 20))   /* 스택 최대 1MB */
@@ -273,12 +274,16 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
+	list_push_back (&frame_table->list, &frame->elem);
+	page->pml4 = thread_current ()->pml4;
+
 	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
 		frame->page = NULL;
 		page->frame = NULL;
 		if (pml4_get_page (curr->pml4, page->va))
 			pml4_clear_page (curr->pml4, page->va);
 
+		list_remove (&frame->elem);
 		palloc_free_page (frame->kva);
 		free (frame);
 		return false;
