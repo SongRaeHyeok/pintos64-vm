@@ -50,7 +50,7 @@ file_backed_swap_in (struct page *page, void *kva) {
 	if (read != file_page->read_bytes)
 		return false;
 	
-	memset ((char *)(page->frame->kva) + read, 0, PGSIZE - read);
+	memset ((char *)kva + read, 0, PGSIZE - read);
 
 	return true;
 }

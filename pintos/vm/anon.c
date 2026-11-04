@@ -3,8 +3,11 @@
 #include "vm/vm.h"
 #include "devices/disk.h"
 #include "threads/malloc.h"
-#include "lib/kernel/bitmap.h"
+#include <bitmap.h>
+#include "threads/vaddr.h"
 #include "threads/mmu.h"
+
+#define SECTORS_PER_PAGE (PGSIZE / DISK_SECTOR_SIZE)
 
 extern struct lock file_lock;
 
@@ -25,7 +28,6 @@ static const struct page_operations anon_ops = {
 /* Initialize the data for anonymous pages */
 void
 vm_anon_init (void) {
-	/* TODO: Set up the swap_disk. */
 	if (!(swap_disk = disk_get (1, 1)))
 		PANIC ("Set up swap disk failed");
 
@@ -33,7 +35,7 @@ vm_anon_init (void) {
 	if (swap_table == NULL)
 		PANIC ("swap_table malloc failed");
 
-	if (!(swap_table->bitmap = bitmap_create (disk_size (swap_disk) / 8)))
+	if (!(swap_table->bitmap = bitmap_create (disk_size (swap_disk) / SECTORS_PER_PAGE)))
 		PANIC ("Bitmap create failed");
 }
 
@@ -44,6 +46,9 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &anon_ops;
 	struct anon_page *anon_page = &page->anon;
 
+	/* swap slot 초기화 */
+	anon_page->swap_slot = SIZE_MAX;
+
 	return true;
 }
 
@@ -51,16 +56,17 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
-	size_t sector_idx = anon_page->swap_slot * 8;
-	int sectors_per_page = 8;
 
-	bool held = lock_held_by_current_thread (&file_lock);
-	if (!held) lock_acquire (&file_lock);
-	for (int i = 0; i < sectors_per_page; i++)
-		disk_read (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
+	disk_sector_t sector_idx = anon_page->swap_slot * SECTORS_PER_PAGE;
 
+	/* swap disk 에서 데이터를 읽어 메모리로 가져옴 */
+	for (int i = 0; i < SECTORS_PER_PAGE; i++) {
+		disk_read (swap_disk, sector_idx + i, kva + DISK_SECTOR_SIZE * i);
+	}
+	
+	/* swap table 갱신 */
 	bitmap_set (swap_table->bitmap, anon_page->swap_slot, false);
-	if (!held) lock_release (&file_lock);
+	anon_page->swap_slot = SIZE_MAX;
 
 	return true;
 }
@@ -70,25 +76,19 @@ static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 
-	bool held = lock_held_by_current_thread (&file_lock);
-	if (!held) lock_acquire (&file_lock);
-	page->anon.swap_slot = bitmap_scan_and_flip (swap_table->bitmap, 0, 1, false);
-	if (!held) lock_release (&file_lock);
-
-	if (anon_page->swap_slot == BITMAP_ERROR)
+	/* 빈 swop slot 찾기 */
+	size_t idx = bitmap_scan_and_flip (swap_table->bitmap, 0, 1, false);
+	if (idx == BITMAP_ERROR)
 		return false;
-		
-	size_t sector_idx = anon_page->swap_slot * 8;
-	int sectors_per_page = 8;
 
-	held = lock_held_by_current_thread (&file_lock);
-	if (!held) lock_acquire (&file_lock);
-	for (int i = 0; i < sectors_per_page; i++)
- 		disk_write (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
+	disk_sector_t sector_idx = idx * SECTORS_PER_PAGE;
 
-	pml4_clear_page (page->pml4, page->va);
-	if (!held) lock_release (&file_lock);
-	
+	/* slot 에 페이지 데이터 한 페이지 분량 복사 */
+	for (int i = 0; i < SECTORS_PER_PAGE; i++) {
+		disk_write (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
+	}
+
+	anon_page->swap_slot = idx;
 	return true;
 }
 
@@ -97,17 +97,12 @@ static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 
-	if (page->frame != NULL)
-		list_remove (&page->frame->elem);
-	else {
-		bool held = lock_held_by_current_thread (&file_lock);
-		if (!held) lock_acquire (&file_lock);
+	/* swap slot 칸 해제 */
+	if (anon_page->swap_slot != SIZE_MAX)
 		bitmap_set (swap_table->bitmap, anon_page->swap_slot, false);
-		if (!held) lock_release (&file_lock);
-	}
 
-	// pml4_clear_page (thread_current ()->pml4, page->va);
-	if (page->frame != NULL)
+	if (page->frame != NULL) {
+		list_remove (&page->frame->elem);
 		free (page->frame);
-	return;
+	}
 }

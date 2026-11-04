@@ -27,7 +27,6 @@ vm_init (void) {
 #endif
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
-	/* TODO: Your code goes here. */
 	frame_table = malloc (sizeof *frame_table);
 	list_init (&frame_table->list);
 }
@@ -81,7 +80,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			goto err;
 
 		uninit_new (page, upage, init, type, aux, initializer);
-		page->writable = writable;	
+		page->writable = writable;
+		page->pml4 = thread_current ()->pml4;
 		
 		if (!spt_insert_page (spt, page)) {
 			free (page);
@@ -130,18 +130,23 @@ vm_get_victim (void) {
 	struct frame *victim = NULL;
 	/* TODO: The policy for eviction is up to you. */
 	
-	struct list_elem *elem = list_begin (&frame_table->list);
-	while (true) {
-		victim = list_entry (elem, struct frame, elem);
-		if (pml4_is_accessed (victim->page->pml4, victim->page->va))
-			pml4_set_accessed (victim->page->pml4, victim->page->va, 0);
-		else 
-			return victim;
-		
-		elem = list_next (elem);
-		if (elem == list_end (&frame_table->list))
-			elem = list_begin (&frame_table->list);
+	struct list_elem *elem = list_front (&frame_table->list);
+	struct page *page = list_entry (elem, struct frame, elem)->page;
+
+	while (true){
+		 if (page == NULL || page->pml4 == NULL || pml4_is_accessed (page->pml4, page->va)) {
+			/* accessed 비트 변경 */
+			if (page && page->pml4) pml4_set_accessed (page->pml4, page->va, 0);
+			list_remove (elem);
+			list_push_back (&frame_table->list, elem);
+
+			elem = list_front (&frame_table->list);
+			page = list_entry (elem, struct frame, elem)->page;
+		} else {
+			return page->frame;
+		}
 	}
+	return victim;
 }
 
 /* Evict one page and return the corresponding frame.
@@ -171,9 +176,9 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-  struct frame *frame = malloc (sizeof *frame);
-  if (frame == NULL)
-    PANIC ("malloc failed");
+	struct frame *frame = malloc (sizeof *frame);
+	if (frame == NULL)
+		PANIC("malloc failed");
 
   frame->kva = palloc_get_page (PAL_USER);
 
