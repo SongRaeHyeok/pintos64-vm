@@ -4,7 +4,7 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "threads/vaddr.h"
-#include "threads/mmu.h"
+#include "threads/mmu.h" 
 #include "vm/uninit.h"
 #include <string.h>
 #include "userprog/process.h"
@@ -12,6 +12,7 @@
 #include "lib/kernel/bitmap.h"
 
 extern struct lock file_lock;
+static struct lock frame_lock;
 
 struct frame_table *frame_table;
 struct swap_table *swap_table;
@@ -29,6 +30,7 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	frame_table = malloc (sizeof *frame_table);
 	list_init (&frame_table->list);
+	lock_init (&frame_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -163,10 +165,8 @@ vm_evict_frame (void) {
 		victim->page = NULL;
 		return victim;
 	}
-	else
-		PANIC ("swap out failed");
 
-	return NULL;
+	PANIC ("evict_frame fail");
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -175,23 +175,25 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = malloc (sizeof *frame);
-	if (frame == NULL)
-		PANIC("malloc failed");
 
-  frame->kva = palloc_get_page (PAL_USER);
+	bool held = lock_held_by_current_thread (&frame_lock);
+	if (!held) lock_acquire (&frame_lock);
+  	struct frame *frame = malloc (sizeof *frame);
+  	if (frame == NULL)
+   		PANIC("malloc failed");
 
-  if (frame->kva == NULL) {
-    free (frame);
-    frame = vm_evict_frame ();
-	if (frame == NULL)
-		PANIC ("evict failed");
-  }
+  	frame->kva = palloc_get_page (PAL_USER);
+	if (frame->kva == NULL) {
+    	free (frame);
+    	frame = vm_evict_frame ();
+  	}
 	frame->page = NULL;
 
-  ASSERT (frame != NULL);
-  ASSERT (frame->page == NULL);
-  return frame;
+	ASSERT (frame != NULL);
+	ASSERT (frame->page == NULL);
+	if (!held) lock_release (&frame_lock);
+
+	return frame;
 }
 
 #define STACK_LIMIT (USER_STACK - (1 << 20))   /* 스택 최대 1MB */
@@ -270,14 +272,12 @@ vm_do_claim_page (struct page *page) {
 	struct thread *curr = thread_current ();
 
 	/* Set links */
-	frame->page = page;
 	page->frame = frame;
 
 	list_push_back (&frame_table->list, &frame->elem);
 	page->pml4 = thread_current ()->pml4;
-
+	
 	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
-		frame->page = NULL;
 		page->frame = NULL;
 		if (pml4_get_page (curr->pml4, page->va))
 			pml4_clear_page (curr->pml4, page->va);
@@ -287,6 +287,8 @@ vm_do_claim_page (struct page *page) {
 		free (frame);
 		return false;
 	}
+
+	frame->page = page;
 	return true;
 }
 
@@ -368,7 +370,10 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			if (!vm_claim_page (page->va)) {
 				return false;
 			}
-			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
+			if (page->frame)
+				memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
+			else
+				anon_read_swap (page, spt_find_page (dst, page->va)->frame->kva);
 		}
 
 		// /* file 일 때 처리 */

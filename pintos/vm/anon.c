@@ -45,9 +45,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &anon_ops;
 	struct anon_page *anon_page = &page->anon;
-
-	/* swap slot 초기화 */
-	anon_page->swap_slot = SIZE_MAX;
+	anon_page->swap_slot = BITMAP_ERROR;
 
 	return true;
 }
@@ -66,7 +64,7 @@ anon_swap_in (struct page *page, void *kva) {
 	
 	/* swap table 갱신 */
 	bitmap_set (swap_table->bitmap, anon_page->swap_slot, false);
-	anon_page->swap_slot = SIZE_MAX;
+	anon_page->swap_slot = BITMAP_ERROR;
 
 	return true;
 }
@@ -90,6 +88,15 @@ anon_swap_out (struct page *page) {
 	
 	anon_page->swap_slot = idx;
 	return true;
+}
+
+void anon_read_swap (struct page *page, void *kva) {
+	struct anon_page *anon_page = &page->anon;
+	size_t sector_idx = anon_page->swap_slot * 8;
+	int sectors_per_page = 8;
+
+	for (int i = 0; i < sectors_per_page; i++)
+		disk_read (swap_disk, sector_idx + i, kva + DISK_SECTOR_SIZE * i);
 }
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
