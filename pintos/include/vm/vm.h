@@ -64,6 +64,7 @@ struct page {
 	/* Your implementation */
 	struct hash_elem elem;
 	bool writable;
+	uint64_t *pml4;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -81,7 +82,19 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list_elem elem;
 };
+
+struct frame_table {
+	struct list list;
+};
+
+struct swap_table {
+	struct bitmap *bitmap;
+};
+
+extern struct frame_table *frame_table;
+extern struct swap_table *swap_table;
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.

@@ -10,6 +10,10 @@
 #include "userprog/process.h"
 
 extern struct lock file_lock;
+
+struct frame_table *frame_table;
+struct swap_table *swap_table;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -22,6 +26,10 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+
+	/* frame table initialize */
+	frame_table = malloc (sizeof (struct frame_table));
+	list_init (&frame_table->list);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -73,7 +81,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			goto err;
 
 		uninit_new (page, upage, init, type, aux, initializer);
-		page->writable = writable;	
+		page->writable = writable;
+		page->pml4 = thread_current ()->pml4;
 		
 		if (!spt_insert_page (spt, page)) {
 			free (page);
@@ -120,8 +129,24 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
+	/* TODO: The policy for eviction is up to you. */
+	
+	struct list_elem *elem = list_front (&frame_table->list);
+	struct page *page = list_entry (elem, struct frame, elem)->page;
 
+	while (true){
+		 if (page == NULL || page->pml4 == NULL || pml4_is_accessed (page->pml4, page->va)) {
+			/* accessed 비트 변경 */
+			if (page && page->pml4) pml4_set_accessed (page->pml4, page->va, 0);
+			list_remove (elem);
+			list_push_back (&frame_table->list, elem);
+
+			elem = list_front (&frame_table->list);
+			page = list_entry (elem, struct frame, elem)->page;
+		} else {
+			return page->frame;
+		}
+	}
 	return victim;
 }
 
@@ -129,10 +154,17 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
+	/* 희생자 페이지 선택 */
+	struct frame *victim = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
+	
+	/* frame 을 참조하는 page table 에서 참조 제거 */
+	swap_out (victim->page);
+	pml4_clear_page (victim->page->pml4, victim->page->va);
+	victim->page->frame = NULL;
+	victim->page = NULL;
 
-	return NULL;
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -141,21 +173,25 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-  struct frame *frame = malloc (sizeof *frame);
-  if (frame == NULL)
-    PANIC("malloc failed");
+	struct frame *frame = malloc (sizeof *frame);
+	if (frame == NULL)
+		PANIC("malloc failed");
 
-  frame->page = NULL;
-  frame->kva = palloc_get_page (PAL_USER);
+	frame->page = NULL;
+	frame->kva = palloc_get_page (PAL_USER);
 
-  if (frame->kva == NULL) {
-    PANIC ("TODO");
-  }
-  /* 이후 frame table 생기면 거기서 처리할 일 고려해봐야 할듯 */
-
-  ASSERT (frame != NULL);
-  ASSERT (frame->page == NULL);
-  return frame;
+	
+	if (frame->kva == NULL) {
+		free (frame);
+		frame = vm_evict_frame ();
+	} else {
+		/* frame 할당, 멤버 초기화*/
+		list_push_back (&frame_table->list, &frame->elem);
+	}
+	
+	ASSERT (frame != NULL);
+	ASSERT (frame->page == NULL);
+	return frame;
 }
 
 #define STACK_LIMIT (USER_STACK - (1 << 20))   /* 스택 최대 1MB */
