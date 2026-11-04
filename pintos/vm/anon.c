@@ -41,6 +41,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &anon_ops;
 	struct anon_page *anon_page = &page->anon;
+	anon_page->swap_slot = BITMAP_ERROR;
 
 	return true;
 }
@@ -51,11 +52,12 @@ anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
 	size_t sector_idx = anon_page->swap_slot * 8;
 	int sectors_per_page = 8;
+
 	for (int i = 0; i < sectors_per_page; i++)
 		disk_read (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
 
-	list_push_back (frame_table, &page->frame->elem);
-	bitmap_set (swap_table, anon_page->swap_slot, true);
+	bitmap_set (swap_table->bitmap, anon_page->swap_slot, false);
+	anon_page->swap_slot = BITMAP_ERROR;
 
 	return true;
 }
@@ -64,6 +66,8 @@ anon_swap_in (struct page *page, void *kva) {
 static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	anon_page->swap_slot = bitmap_scan_and_flip (swap_table->bitmap, 0, 1, false);
+
 	if (anon_page->swap_slot == BITMAP_ERROR)
 		return false;
 		
@@ -72,11 +76,18 @@ anon_swap_out (struct page *page) {
 	for (int i = 0; i < sectors_per_page; i++)
  		disk_write (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
 
-	list_remove (&page->frame->elem);
-	bitmap_set (swap_table, anon_page->swap_slot, false);
 	pml4_clear_page (page->pml4, page->va);
 	
 	return true;
+}
+
+void anon_read_swap (struct page *page, void *kva) {
+	struct anon_page *anon_page = &page->anon;
+	size_t sector_idx = anon_page->swap_slot * 8;
+	int sectors_per_page = 8;
+
+	for (int i = 0; i < sectors_per_page; i++)
+		disk_read (swap_disk, sector_idx + i, kva + DISK_SECTOR_SIZE * i);
 }
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
@@ -86,8 +97,8 @@ anon_destroy (struct page *page) {
 
 	if (page->frame != NULL)
 		list_remove (&page->frame->elem);
-	else
-		bitmap_set (swap_table, anon_page->swap_slot, true);
+	else if (anon_page->swap_slot != BITMAP_ERROR)
+		bitmap_set (swap_table->bitmap, anon_page->swap_slot, false);
 
 	// pml4_clear_page (thread_current ()->pml4, page->va);
 	if (page->frame != NULL)

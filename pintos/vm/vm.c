@@ -11,6 +11,7 @@
 #include "threads/mmu.h"
 
 extern struct lock file_lock;
+static struct lock frame_lock;
 
 struct frame_table *frame_table;
 struct swap_table *swap_table;
@@ -29,6 +30,7 @@ vm_init (void) {
 	/* TODO: Your code goes here. */
 	frame_table = malloc (sizeof *frame_table);
 	list_init (&frame_table->list);
+	lock_init (&frame_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -132,14 +134,18 @@ vm_get_victim (void) {
 	struct list_elem *elem = list_begin (&frame_table->list);
 	while (true) {
 		victim = list_entry (elem, struct frame, elem);
-		if (pml4_is_accessed (victim->page->pml4, victim->page))
-			pml4_set_accessed (victim->page->pml4, victim->page, 0);
-		else 
-			return victim;
-		
+
 		elem = list_next (elem);
 		if (elem == list_end (&frame_table->list))
 			elem = list_begin (&frame_table->list);
+
+		if (victim->page == NULL)
+			continue;
+
+		if (pml4_is_accessed (victim->page->pml4, victim->page->va))
+			pml4_set_accessed (victim->page->pml4, victim->page->va, 0);
+		else 
+			return victim;
 	}
 }
 
@@ -153,29 +159,13 @@ vm_evict_frame (void) {
 	list_remove (&victim->elem);
 	pml4_clear_page (victim->page->pml4, victim->page->va);
 
-	switch (VM_TYPE(page->operations->type)) {
-		case (VM_ANON):
-		page->anon.swap_slot = bitmap_scan_and_flip (swap_table->bitmap, 0, 1, false);
-			if (swap_out (page)) {
-				page->frame = NULL;
-				victim->page = NULL;
-				return victim;
-			}
-			else
-				PANIC ('swap disk is full');
-			break;
-		case (VM_FILE):
-			if (swap_out (page)) {
-				page->frame = NULL;
-				victim->page = NULL;
-				return victim;
-			}
-			break;
-		default:
-			break;
+	if (swap_out (page)) {
+		page->frame = NULL;
+		victim->page = NULL;
+		return victim;
 	}
 
-	return NULL;
+	PANIC ("evict_frame fail");
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -184,22 +174,27 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-  struct frame *frame = malloc (sizeof *frame);
-  if (frame == NULL)
-    PANIC("malloc failed");
 
-  frame->kva = palloc_get_page (PAL_USER);
+	bool held = lock_held_by_current_thread (&frame_lock);
+	if (!held) lock_acquire (&frame_lock);
+  	struct frame *frame = malloc (sizeof *frame);
+  	if (frame == NULL)
+   		PANIC("malloc failed");
 
-  if (frame->kva == NULL) {
-    free (frame);
-    frame = vm_evict_frame ();
-  }
-	frame->page = NULL;
-	list_push_back (&frame_table->list, &frame->elem);
+  	frame->kva = palloc_get_page (PAL_USER);
 
-  ASSERT (frame != NULL);
-  ASSERT (frame->page == NULL);
-  return frame;
+	if (frame->kva == NULL) {
+		free (frame);
+		frame = vm_evict_frame ();
+	}
+		frame->page = NULL;
+		list_push_back (&frame_table->list, &frame->elem);
+
+	ASSERT (frame != NULL);
+	ASSERT (frame->page == NULL);
+	if (!held) lock_release (&frame_lock);
+
+	return frame;
 }
 
 #define STACK_LIMIT (USER_STACK - (1 << 20))   /* 스택 최대 1MB */
@@ -278,21 +273,22 @@ vm_do_claim_page (struct page *page) {
 	struct thread *curr = thread_current ();
 
 	/* Set links */
-	frame->page = page;
 	page->frame = frame;
-
+	
 	page->pml4 = thread_current ()->pml4;
-
+	
 	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
-		frame->page = NULL;
 		page->frame = NULL;
 		if (pml4_get_page (curr->pml4, page->va))
 			pml4_clear_page (curr->pml4, page->va);
-
+		
+		list_remove (&frame->elem);
 		palloc_free_page (frame->kva);
 		free (frame);
 		return false;
 	}
+
+	frame->page = page;
 	return true;
 }
 
@@ -374,7 +370,10 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 			if (!vm_claim_page (page->va)) {
 				return false;
 			}
-			memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
+			if (page->frame)
+				memcpy (spt_find_page (dst, page->va)->frame->kva, page->frame->kva, PGSIZE);
+			else
+				anon_read_swap (page, spt_find_page (dst, page->va)->frame->kva);
 		}
 
 		// /* file 일 때 처리 */

@@ -52,8 +52,6 @@ file_backed_swap_in (struct page *page, void *kva) {
 	
 	memset ((char *)(page->frame->kva) + read, 0, PGSIZE - read);
 
-	list_push_back (frame_table, &page->frame->elem);
-
 	return true;
 }
 
@@ -74,7 +72,6 @@ file_backed_swap_out (struct page *page) {
 			pml4_set_dirty (page->pml4, page->va, 0);
 	}
 	pml4_clear_page (page->pml4, page->va);
-	list_remove (&page->frame->elem);
 
 	return true;
 }
@@ -95,6 +92,7 @@ file_backed_destroy (struct page *page) {
 	pml4_clear_page (thread_current ()->pml4, page->va);
 
 	if (page->frame != NULL) {
+		list_remove (&page->frame->elem);
 		palloc_free_page (page->frame->kva);
 		free (page->frame);
 	}
