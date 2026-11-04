@@ -60,11 +60,11 @@ struct page {
 	const struct page_operations *operations;
 	void *va;              /* Address in terms of user space */
 	struct frame *frame;   /* Back reference for frame */
-	uint32_t *pml4;
 
 	/* Your implementation */
 	struct hash_elem elem;
 	bool writable;
+	uint64_t *pml4;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */

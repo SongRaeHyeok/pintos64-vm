@@ -9,6 +9,7 @@
 #include <string.h>
 #include "userprog/process.h"
 #include "threads/mmu.h"
+#include "lib/kernel/bitmap.h"
 
 extern struct lock file_lock;
 
@@ -19,8 +20,6 @@ struct swap_table *swap_table;
  * intialize codes. */
 void
 vm_init (void) {
-	frame_table = malloc (sizeof (*frame_table));
-	swap_table = malloc (sizeof (*swap_table));
 	vm_anon_init ();
 	vm_file_init ();
 #ifdef EFILESYS  /* For project 4 */
@@ -28,7 +27,7 @@ vm_init (void) {
 #endif
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
-	/* TODO: Your code goes here. */
+	frame_table = malloc (sizeof *frame_table);
 	list_init (&frame_table->list);
 }
 
@@ -81,7 +80,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			goto err;
 
 		uninit_new (page, upage, init, type, aux, initializer);
-		page->writable = writable;	
+		page->writable = writable;
 		
 		if (!spt_insert_page (spt, page)) {
 			free (page);
@@ -130,18 +129,23 @@ vm_get_victim (void) {
 	struct frame *victim = NULL;
 	/* TODO: The policy for eviction is up to you. */
 	
-	struct list_elem *elem = list_begin (&frame_table->list);
-	while (true) {
-		victim = list_entry (elem, struct frame, elem);
-		if (pml4_is_accessed (victim->page->pml4, victim->page->va))
-			pml4_set_accessed (victim->page->pml4, victim->page->va, 0);
-		else 
-			return victim;
-		
-		elem = list_next (elem);
-		if (elem == list_end (&frame_table->list))
-			elem = list_begin (&frame_table->list);
+	struct list_elem *elem = list_front (&frame_table->list);
+	struct page *page = list_entry (elem, struct frame, elem)->page;
+
+	while (true){
+		 if (page == NULL || page->pml4 == NULL || pml4_is_accessed (page->pml4, page->va)) {
+			/* accessed 비트 변경 */
+			if (page && page->pml4) pml4_set_accessed (page->pml4, page->va, 0);
+			list_remove (elem);
+			list_push_back (&frame_table->list, elem);
+
+			elem = list_front (&frame_table->list);
+			page = list_entry (elem, struct frame, elem)->page;
+		} else {
+			return page->frame;
+		}
 	}
+	return victim;
 }
 
 /* Evict one page and return the corresponding frame.
@@ -154,27 +158,13 @@ vm_evict_frame (void) {
 	list_remove (&victim->elem);
 	pml4_clear_page (page->pml4, page->va);
 
-	switch (VM_TYPE(page->operations->type)) {
-		case (VM_ANON):
-		page->anon.swap_slot = bitmap_scan_and_flip (swap_table->bitmap, 0, 1, false);
-			if (swap_out (page)) {
-				page->frame = NULL;
-				victim->page = NULL;
-				return victim;
-			}
-			else
-				PANIC ('swap disk is full');
-			break;
-		case (VM_FILE):
-			if (swap_out (page)) {
-				page->frame = NULL;
-				victim->page = NULL;
-				return victim;
-			}
-			break;
-		default:
-			break;
+	if (swap_out (page)) {
+		page->frame = NULL;
+		victim->page = NULL;
+		return victim;
 	}
+	else
+		PANIC ("swap out failed");
 
 	return NULL;
 }
@@ -185,18 +175,19 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-  struct frame *frame = malloc (sizeof *frame);
-  if (frame == NULL)
-    PANIC("malloc failed");
+	struct frame *frame = malloc (sizeof *frame);
+	if (frame == NULL)
+		PANIC("malloc failed");
 
   frame->kva = palloc_get_page (PAL_USER);
 
   if (frame->kva == NULL) {
     free (frame);
     frame = vm_evict_frame ();
+	if (frame == NULL)
+		PANIC ("evict failed");
   }
 	frame->page = NULL;
-	list_push_back (&frame_table->list, &frame->elem);
 
   ASSERT (frame != NULL);
   ASSERT (frame->page == NULL);
@@ -282,6 +273,7 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
+	list_push_back (&frame_table->list, &frame->elem);
 	page->pml4 = thread_current ()->pml4;
 
 	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
@@ -290,8 +282,8 @@ vm_do_claim_page (struct page *page) {
 		if (pml4_get_page (curr->pml4, page->va))
 			pml4_clear_page (curr->pml4, page->va);
 
-		palloc_free_page (frame->kva);
 		list_remove (&frame->elem);
+		palloc_free_page (frame->kva);
 		free (frame);
 		return false;
 	}
@@ -380,21 +372,6 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		}
 
 		// /* file 일 때 처리 */
-		// if (vm_type == VM_FILE) {
-		// 	fp = malloc (sizeof *fp);
-		// 	if (fp == NULL) return false;
-
-		// 	struct file_page *old_fp = &page->file;
-
-		// 	*fp = (struct file_page) {
-		// 		.file = file_reopen (page->file.file),
-		// 		.ofs = old_fp->ofs,
-		// 		.page_cnt = old_fp->page_cnt,
-		// 		.read_bytes = old_fp->read_bytes,
-		// 		.zero_bytes = old_fp->zero_bytes
-		// 	};
-			// spt_find_page (dst, page->va)->file = *fp;
-		// }
 	}
 	
 	return true;
