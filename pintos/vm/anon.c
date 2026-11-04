@@ -87,7 +87,7 @@ anon_swap_out (struct page *page) {
 	for (int i = 0; i < SECTORS_PER_PAGE; i++) {
 		disk_write (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
 	}
-
+	
 	anon_page->swap_slot = idx;
 	return true;
 }

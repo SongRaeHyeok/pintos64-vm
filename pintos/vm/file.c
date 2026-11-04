@@ -69,7 +69,7 @@ file_backed_swap_out (struct page *page) {
 		if (written != file_page->read_bytes)
 			return false;
 		
-			pml4_set_dirty (page->pml4, page->va, 0);
+		pml4_set_dirty (page->pml4, page->va, 0);
 	}
 	pml4_clear_page (page->pml4, page->va);
 
