@@ -9,6 +9,7 @@
 #include <string.h>
 #include "userprog/process.h"
 #include "threads/mmu.h"
+#include "lib/kernel/bitmap.h"
 
 extern struct lock file_lock;
 
@@ -132,8 +133,8 @@ vm_get_victim (void) {
 	struct list_elem *elem = list_begin (&frame_table->list);
 	while (true) {
 		victim = list_entry (elem, struct frame, elem);
-		if (pml4_is_accessed (victim->page->pml4, victim->page))
-			pml4_set_accessed (victim->page->pml4, victim->page, 0);
+		if (pml4_is_accessed (victim->page->pml4, victim->page->va))
+			pml4_set_accessed (victim->page->pml4, victim->page->va, 0);
 		else 
 			return victim;
 		
@@ -153,27 +154,13 @@ vm_evict_frame (void) {
 	list_remove (&victim->elem);
 	pml4_clear_page (victim->page->pml4, victim->page->va);
 
-	switch (VM_TYPE(page->operations->type)) {
-		case (VM_ANON):
-		page->anon.swap_slot = bitmap_scan_and_flip (swap_table->bitmap, 0, 1, false);
-			if (swap_out (page)) {
-				page->frame = NULL;
-				victim->page = NULL;
-				return victim;
-			}
-			else
-				PANIC ('swap disk is full');
-			break;
-		case (VM_FILE):
-			if (swap_out (page)) {
-				page->frame = NULL;
-				victim->page = NULL;
-				return victim;
-			}
-			break;
-		default:
-			break;
+	if (swap_out (page)) {
+		page->frame = NULL;
+		victim->page = NULL;
+		return victim;
 	}
+	else
+		PANIC ("swap out failed");
 
 	return NULL;
 }
@@ -186,16 +173,17 @@ static struct frame *
 vm_get_frame (void) {
   struct frame *frame = malloc (sizeof *frame);
   if (frame == NULL)
-    PANIC("malloc failed");
+    PANIC ("malloc failed");
 
   frame->kva = palloc_get_page (PAL_USER);
 
   if (frame->kva == NULL) {
     free (frame);
     frame = vm_evict_frame ();
+		if (frame == NULL)
+			PANIC ("evict failed");
   }
 	frame->page = NULL;
-	list_push_back (&frame_table->list, &frame->elem);
 
   ASSERT (frame != NULL);
   ASSERT (frame->page == NULL);
@@ -281,6 +269,7 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
+	list_push_back (&frame_table->list, &frame->elem);
 	page->pml4 = thread_current ()->pml4;
 
 	if (!pml4_set_page (curr->pml4, page->va, frame->kva, page->writable) || !swap_in (page, frame->kva)) {
@@ -289,6 +278,7 @@ vm_do_claim_page (struct page *page) {
 		if (pml4_get_page (curr->pml4, page->va))
 			pml4_clear_page (curr->pml4, page->va);
 
+		list_remove (&frame->elem);
 		palloc_free_page (frame->kva);
 		free (frame);
 		return false;

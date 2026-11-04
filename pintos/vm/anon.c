@@ -6,6 +6,8 @@
 #include "lib/kernel/bitmap.h"
 #include "threads/mmu.h"
 
+extern struct lock file_lock;
+
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
 static bool anon_swap_in (struct page *page, void *kva);
@@ -51,11 +53,14 @@ anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
 	size_t sector_idx = anon_page->swap_slot * 8;
 	int sectors_per_page = 8;
+
+	bool held = lock_held_by_current_thread (&file_lock);
+	if (!held) lock_acquire (&file_lock);
 	for (int i = 0; i < sectors_per_page; i++)
 		disk_read (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
 
-	list_push_back (frame_table, &page->frame->elem);
-	bitmap_set (swap_table, anon_page->swap_slot, true);
+	bitmap_set (swap_table->bitmap, anon_page->swap_slot, false);
+	if (!held) lock_release (&file_lock);
 
 	return true;
 }
@@ -64,17 +69,25 @@ anon_swap_in (struct page *page, void *kva) {
 static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+
+	bool held = lock_held_by_current_thread (&file_lock);
+	if (!held) lock_acquire (&file_lock);
+	page->anon.swap_slot = bitmap_scan_and_flip (swap_table->bitmap, 0, 1, false);
+	if (!held) lock_release (&file_lock);
+
 	if (anon_page->swap_slot == BITMAP_ERROR)
 		return false;
 		
 	size_t sector_idx = anon_page->swap_slot * 8;
 	int sectors_per_page = 8;
+
+	held = lock_held_by_current_thread (&file_lock);
+	if (!held) lock_acquire (&file_lock);
 	for (int i = 0; i < sectors_per_page; i++)
  		disk_write (swap_disk, sector_idx + i, page->frame->kva + DISK_SECTOR_SIZE * i);
 
-	list_remove (&page->frame->elem);
-	bitmap_set (swap_table, anon_page->swap_slot, false);
 	pml4_clear_page (page->pml4, page->va);
+	if (!held) lock_release (&file_lock);
 	
 	return true;
 }
@@ -86,8 +99,12 @@ anon_destroy (struct page *page) {
 
 	if (page->frame != NULL)
 		list_remove (&page->frame->elem);
-	else
-		bitmap_set (swap_table, anon_page->swap_slot, true);
+	else {
+		bool held = lock_held_by_current_thread (&file_lock);
+		if (!held) lock_acquire (&file_lock);
+		bitmap_set (swap_table->bitmap, anon_page->swap_slot, false);
+		if (!held) lock_release (&file_lock);
+	}
 
 	// pml4_clear_page (thread_current ()->pml4, page->va);
 	if (page->frame != NULL)
