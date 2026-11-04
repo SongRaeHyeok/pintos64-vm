@@ -50,7 +50,7 @@ file_backed_swap_in (struct page *page, void *kva) {
 	if (read != file_page->read_bytes)
 		return false;
 	
-	memset ((char *)(page->frame->kva) + read, 0, PGSIZE - read);
+	memset ((char *)kva + read, 0, PGSIZE - read);
 
 	return true;
 }
@@ -69,7 +69,7 @@ file_backed_swap_out (struct page *page) {
 		if (written != file_page->read_bytes)
 			return false;
 		
-			pml4_set_dirty (page->pml4, page->va, 0);
+		pml4_set_dirty (page->pml4, page->va, 0);
 	}
 	pml4_clear_page (page->pml4, page->va);
 
