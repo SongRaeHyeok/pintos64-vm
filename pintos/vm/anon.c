@@ -98,8 +98,12 @@ static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 
-	// pml4_clear_page (thread_current ()->pml4, page->va);
-	if (page->frame != NULL)
+	/* swap slot 칸 해제 */
+	if (anon_page->swap_slot != SIZE_MAX)
+		bitmap_set (swap_table->bitmap, anon_page->swap_slot, false);
+
+	if (page->frame != NULL) {
+		list_remove (&page->frame->elem);
 		free (page->frame);
-	return;
+	}
 }
