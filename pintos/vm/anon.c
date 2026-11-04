@@ -51,6 +51,21 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
+
+	disk_sector_t st = anon_page->swap_slot * SECTORS_PER_PAGE;
+
+	/* swap disk 에서 데이터를 읽어 메모리로 가져옴 */
+	for (int i = 0; i < SECTORS_PER_PAGE; i++) {
+		disk_read (swap_disk, st, kva);
+		kva += DISK_SECTOR_SIZE;
+		st ++;
+	}
+	
+	/* swap table 갱신 */
+	bitmap_set (swap_table->bitmap, anon_page->swap_slot, false);
+	anon_page->swap_slot = SIZE_MAX;
+
+	return true;
 }
 
 /* Swap out the page by writing contents to the swap disk. */
@@ -62,19 +77,19 @@ anon_swap_out (struct page *page) {
 	size_t idx = bitmap_scan_and_flip (swap_table->bitmap, 0, 1, false);
 	/* 디스크에 빈 slot 없으면 커널 panic */
 	if (idx == BITMAP_ERROR) PANIC ("swap disk full");
-	
+
 	void *page_kva = page->frame->kva;
 	disk_sector_t st = idx * SECTORS_PER_PAGE;
 
 	/* slot 에 페이지 데이터 한 페이지 분량 복사 */
-	for (int i = 0; i < SECTORS_PER_PAGE; i++){
+	for (int i = 0; i < SECTORS_PER_PAGE; i++) {
 		disk_write (swap_disk, st, page_kva);
 		page_kva += DISK_SECTOR_SIZE;
 		st ++;
 	}
 
 	/* 데이터가 어디 있는지 page 구조체에 저장 */
-	page->anon.swap_slot = idx;
+	anon_page->swap_slot = idx;
 	return true;
 }
 
